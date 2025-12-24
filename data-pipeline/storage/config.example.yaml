@@ -1,0 +1,15 @@
+# Time-series storage configuration (InfluxDB or PostgreSQL)
+# Copy to config.yaml and adjust credentials.
+
+influxdb:
+  url: http://localhost:8086
+  org: flip
+  bucket: flip-ts
+  token: YOUR_INFLUX_TOKEN
+  retention_hours: 4320  # 180 days
+
+postgres:
+  dsn: postgres://flip:flip@localhost:5432/flip_ts?sslmode=disable
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime_minutes: 30

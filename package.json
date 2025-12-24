@@ -1,0 +1,16 @@
+{
+  "name": "flip",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "lint": "echo 'Add linting if needed'"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.22.6",
+    "typescript": "^5.5.4",
+    "ts-node": "^10.9.2"
+  }
+}
