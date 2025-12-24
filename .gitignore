@@ -1,5 +1,141 @@
-/.venv
-/TEST_RESULTS.md
-/cache
-/node_modules
-/package-lock.json
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+*_executed.ipynb
+
+# Node.js / Hardhat
+node_modules/
+package-lock.json
+.cache/
+artifacts/
+cache/
+coverage/
+coverage.json
+typechain-types/
+.openzeppelin/
+
+# Foundry
+out/
+broadcast/
+cache/
+forge-cache/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+vendor/
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+*.dump
+
+# Test outputs
+test-results/
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ML Models (large files - use Git LFS if needed)
+ml/models/*.pkl
+ml/models/*.h5
+ml/models/*.onnx
+ml/models/*.pb
+ml/models/*.joblib
+!ml/models/.gitkeep
+
+# Data files (large - use Git LFS or external storage)
+data-pipeline/data/
+*.csv
+*.parquet
+*.h5
+*.hdf5
+
+# Build artifacts
+build/
+dist/
+*.egg
+
+# Documentation builds
+docs/_build/
+docs/.doctrees/
+
+# Monitoring/logging
+monitoring/logs/
+*.log
+
+# Oracle node keys (NEVER commit)
+oracle/keys/
+*.privkey
+*.keyfile
+
+# Test results
+TEST_RESULTS.md
+test_outputs/
