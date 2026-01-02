@@ -1,16 +1,19 @@
-pandas>=2.2.2
-numpy>=1.26.4
-scikit-learn>=1.5.1
-xgboost>=2.1.0
-matplotlib>=3.9.0
-seaborn>=0.13.2
+# ML Training Dependencies
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+xgboost>=2.0.0
 jupyter>=1.0.0
-notebook>=7.2.0
-ipywidgets>=8.1.2
-requests>=2.32.3
-web3>=6.19.0
-influxdb-client>=1.45.0
-psycopg2-binary>=2.9.9
-pydantic>=2.7.4
-rich>=13.7.1
-pyyaml>=6.0.1
+matplotlib>=3.7.0
+seaborn>=0.12.0
+web3>=6.0.0
+tensorflow>=2.13.0
+ipykernel>=6.25.0
+notebook>=7.0.0
+
+# Data pipeline dependencies
+influxdb-client>=1.37.0
+psycopg2-binary>=2.9.0
+
+# Conformal prediction (if available)
+# nonconformist>=2.1.0
