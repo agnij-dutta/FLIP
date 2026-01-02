@@ -125,7 +125,8 @@ contract FLIPCore {
         
         // Lock price via FTSO and create price hedge
         string memory symbol = _getAssetSymbol(_asset);
-        (uint256 price, uint256 timestamp) = ftsoRegistry.getCurrentPriceWithDecimals(symbol);
+        // Get current price (for future volatility calculation)
+        ftsoRegistry.getCurrentPriceWithDecimals(symbol); // Price will be used in scoring
         (uint256 lockedPrice, uint256 hedgeId) = priceHedgePool.lockPrice(_asset, _amount);
 
         redemptions[redemptionId] = Redemption({
@@ -347,7 +348,7 @@ contract FLIPCore {
      * @notice Get asset symbol for FTSO lookup
      * @dev Maps FAsset addresses to FTSO symbols (e.g., FXRP -> "XRP/USD")
      */
-    function _getAssetSymbol(address _asset) internal pure returns (string memory) {
+    function _getAssetSymbol(address /* _asset */) internal pure returns (string memory) {
         // In production, this would be a mapping or registry lookup
         // For now, return placeholder - will be configured per deployment
         return "XRP/USD"; // Default, should be configurable
