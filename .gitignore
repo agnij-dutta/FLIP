@@ -37,6 +37,8 @@ out/
 broadcast/
 cache/
 forge-cache/
+foundry.lock
+.gitmodules
 
 # Go
 *.exe

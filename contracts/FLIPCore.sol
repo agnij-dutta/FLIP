@@ -118,8 +118,8 @@ contract FLIPCore {
 
         IFAsset fAsset = IFAsset(_asset);
         
-        // Burn FAsset tokens from user
-        fAsset.burn(_amount);
+        // Request redemption on FAsset (burns tokens and returns FAsset redemption ID)
+        uint256 fAssetRedemptionId = fAsset.requestRedemption(_amount);
 
         redemptionId = nextRedemptionId++;
         
