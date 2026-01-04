@@ -114,3 +114,5 @@ echo ""
 echo "📝 Update frontend/app/page.tsx with FLIP_CORE_ADDRESS=$FLIP_CORE"
 echo "🔍 View on explorer: https://coston2.testnet.flarescan.com/address/$FLIP_CORE"
 
+
+

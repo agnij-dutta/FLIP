@@ -44,3 +44,5 @@ Update `app/providers.tsx` to change network configuration.
 - For production, add error handling and loading states
 - Consider adding a redemption history view
 
+
+
