@@ -1,8 +1,8 @@
-# FLIP MVP - Mathematical Model (No ML)
+# FLIP MVP - Mathematical Model (No ML) - v2
 
 ## Overview
 
-MVP implementation uses **deterministic mathematical scoring** instead of ML predictions. All decisions are rule-based and fully transparent.
+MVP v2 implementation uses **deterministic mathematical scoring** instead of ML predictions. All decisions are rule-based and fully transparent. Additionally, v2 introduces an **escrow-based conditional settlement** model that eliminates idle capital requirements.
 
 ## Architecture Changes
 
@@ -10,14 +10,17 @@ MVP implementation uses **deterministic mathematical scoring** instead of ML pre
 - ❌ ML training pipeline (`ml/training/`)
 - ❌ ML model inference (`oracle/node/predictor.go` with ML)
 - ❌ Conformal prediction calibration
-- ❌ OracleRelay dependency (optional, can be removed)
+- ❌ InsurancePool (prefunded capital pool)
 
 ### New Components
 - ✅ `DeterministicScoring.sol` - On-chain scoring library
+- ✅ `EscrowVault.sol` - Conditional escrow vault (replaces InsurancePool)
+- ✅ `SettlementReceipt.sol` - ERC-721 NFT for conditional claims
+- ✅ `LiquidityProviderRegistry.sol` - Market-based LP system
 - ✅ `oracle/node/scorer.go` - Go implementation of scoring
 - ✅ Direct on-chain decision making
 
-## Decision Flow
+## Decision Flow (v2)
 
 ```
 1. User requests redemption
@@ -30,12 +33,24 @@ MVP implementation uses **deterministic mathematical scoring** instead of ML pre
    - Agent reputation
    - Time-of-day factor
    ↓
-4. Make decision:
-   - Score >= 99.7% → Provisional settlement
-   - Score 95-99.7% → Buffer/Earmark
-   - Score < 95% → Queue for FDC
+4. Make routing decision:
+   - Score >= 99.7% → FastLane (provisional settlement with escrow)
+   - Score < 99.7% → QueueFDC (wait for FDC)
    ↓
-5. FDC finalization (unchanged)
+5a. FastLane path:
+    - Try LP matching
+    - Create escrow (LP-funded or user-wait)
+    - Mint settlement receipt NFT
+    - User can redeemNow() (with haircut) or wait for FDC
+   ↓
+5b. QueueFDC path:
+    - Queue for FDC attestation
+    - No escrow, no receipt
+   ↓
+6. FDC adjudication:
+   - Success → Release escrow, finalize
+   - Failure → Return funds, mark failed
+   - Timeout → Return funds, mark timeout
 ```
 
 ## Scoring Formula
@@ -64,15 +79,23 @@ Where:
 
 ### ✅ Completed
 - `DeterministicScoring.sol` library
+- `EscrowVault.sol` conditional escrow vault
+- `SettlementReceipt.sol` ERC-721 NFT
+- `LiquidityProviderRegistry.sol` LP system
+- Updated `FLIPCore.sol` to use escrow model
+- Updated `OracleRelay.sol` to advisory-only
+- Updated `OperatorRegistry.sol` slashing logic
 - `oracle/node/scorer.go` implementation
-- Updated `FLIPCore.sol` to use scoring
-- Mathematical model documentation
+- Unit tests (EscrowVault, SettlementReceipt, LP Registry, FLIPCore)
+- Integration tests (FullFlow)
+- Stress tests (EscrowStress)
+- Documentation (architecture, escrow model, LP guide)
 
 ### 🔄 To Do
-- Update tests to use deterministic scoring
-- Remove ML dependencies from oracle nodes
-- Update deployment scripts
+- Remove ML dependencies from oracle nodes (if any remain)
+- Update deployment scripts with new contracts
 - Add governance for threshold updates
+- Frontend integration for receipt redemption
 
 ## Usage
 

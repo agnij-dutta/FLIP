@@ -211,21 +211,56 @@ library DeterministicScoring {
     }
     
     /**
-     * @notice Determine redemption decision based on score
+     * @notice Determine routing decision based on score (advisory only)
      * @param result Score result
-     * @return decision Decision type: 0=QueueFDC, 1=BufferEarmark, 2=ProvisionalSettle
+     * @return decision Routing decision: 0=QueueFDC, 1=FastLane
+     * @dev This is ADVISORY ONLY - does not trigger capital allocation
+     *      FLIPCore uses this for routing decisions, not for direct settlement
      */
     function makeDecision(ScoreResult memory result) 
         internal 
         pure 
         returns (uint8 decision) 
     {
+        // decision: 0=QueueFDC, 1=FastLane
         if (result.canProvisionalSettle) {
-            return 2; // ProvisionalSettle
-        } else if (result.confidenceLower >= LOW_CONFIDENCE_THRESHOLD) {
-            return 1; // BufferEarmark
+            return 1; // FastLane
         } else {
             return 0; // QueueFDC
+        }
+    }
+    
+    /**
+     * @notice Calculate suggested haircut based on score confidence
+     * @param result Score result
+     * @return haircut Suggested haircut rate (scaled: 1000000 = 100%)
+     * @dev Higher confidence = lower haircut
+     *      Max haircut is 5% (50000 scaled)
+     */
+    function calculateSuggestedHaircut(ScoreResult memory result)
+        internal
+        pure
+        returns (uint256 haircut)
+    {
+        uint256 maxHaircut = 50000; // 5% max (scaled: 1000000 = 100%)
+        
+        // Higher confidenceLower = lower haircut
+        // haircut = (1 - confidenceLower) * maxHaircut
+        // If confidenceLower = 99.7% (997000), haircut = 0.3% * 5% = 0.015% (1500)
+        // If confidenceLower = 95% (950000), haircut = 5% * 5% = 0.25% (2500)
+        
+        uint256 confidenceGap = 1000000 - result.confidenceLower;
+        haircut = (confidenceGap * maxHaircut) / 1000000;
+        
+        // Ensure haircut doesn't exceed max
+        if (haircut > maxHaircut) {
+            haircut = maxHaircut;
+        }
+        
+        // Minimum haircut of 0.1% (1000) for risk buffer
+        uint256 minHaircut = 1000; // 0.1%
+        if (haircut < minHaircut) {
+            haircut = minHaircut;
         }
     }
 }

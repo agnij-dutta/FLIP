@@ -3,16 +3,18 @@ pragma solidity ^0.8.24;
 
 /**
  * @title OracleRelay
- * @notice On-chain interface for oracle predictions with aggregation
- * @dev Operators submit signed predictions; contract aggregates and verifies
+ * @notice Advisory-only oracle predictions for routing decisions
+ * @dev Operators submit signed predictions; predictions are ADVISORY ONLY
+ *      They determine fast-lane eligibility, queue ordering, and haircut sizing
+ *      They do NOT directly unlock capital - FLIPCore makes final decisions
  */
 contract OracleRelay {
     struct Prediction {
         address operator;
         uint256 redemptionId;
-        uint256 probability; // Scaled: 1000000 = 100%
-        uint256 confidenceLower; // Lower bound of confidence interval (scaled)
-        uint256 confidenceUpper; // Upper bound of confidence interval (scaled)
+        uint256 score;              // Advisory score (scaled: 1000000 = 100%)
+        uint256 suggestedHaircut;   // Suggested haircut (scaled: 1000000 = 100%)
+        uint8 routingDecision;      // 0=QueueFDC, 1=FastLane
         uint256 timestamp;
         bytes signature;
     }
@@ -24,8 +26,9 @@ contract OracleRelay {
     event PredictionSubmitted(
         uint256 indexed redemptionId,
         address indexed operator,
-        uint256 probability,
-        uint256 confidenceLower
+        uint256 score,
+        uint256 suggestedHaircut,
+        uint8 routingDecision
     );
 
     modifier onlyOwner() {
@@ -43,43 +46,45 @@ contract OracleRelay {
     }
 
     /**
-     * @notice Submit a prediction for a redemption
+     * @notice Submit an advisory prediction for a redemption
+     * @dev Predictions are ADVISORY ONLY - they do not trigger capital allocation
+     *      FLIPCore uses these for routing decisions, queue ordering, and haircut sizing
      * @param _redemptionId Redemption ID
-     * @param _probability Success probability (scaled: 1000000 = 100%)
-     * @param _confidenceLower Lower confidence bound (scaled)
-     * @param _confidenceUpper Upper confidence bound (scaled)
+     * @param _score Advisory score (scaled: 1000000 = 100%)
+     * @param _suggestedHaircut Suggested haircut rate (scaled: 1000000 = 100%)
+     * @param _routingDecision Routing decision: 0=QueueFDC, 1=FastLane
      * @param _signature Operator signature
      */
     function submitPrediction(
         uint256 _redemptionId,
-        uint256 _probability,
-        uint256 _confidenceLower,
-        uint256 _confidenceUpper,
+        uint256 _score,
+        uint256 _suggestedHaircut,
+        uint8 _routingDecision,
         bytes calldata _signature
     ) external onlyOperator {
-        require(_probability <= 1000000, "OracleRelay: invalid probability");
-        require(_confidenceLower <= _confidenceUpper, "OracleRelay: invalid confidence");
-        require(_confidenceLower <= _probability && _probability <= _confidenceUpper, "OracleRelay: probability out of bounds");
+        require(_score <= 1000000, "OracleRelay: invalid score");
+        require(_suggestedHaircut <= 1000000, "OracleRelay: invalid haircut");
+        require(_routingDecision <= 1, "OracleRelay: invalid routing decision");
 
         // Verify signature (simplified - in production use EIP-712)
         bytes32 messageHash = keccak256(
-            abi.encodePacked(_redemptionId, _probability, _confidenceLower, _confidenceUpper, block.timestamp)
+            abi.encodePacked(_redemptionId, _score, _suggestedHaircut, _routingDecision, block.timestamp)
         );
         // Signature verification would happen here
 
         Prediction memory prediction = Prediction({
             operator: msg.sender,
             redemptionId: _redemptionId,
-            probability: _probability,
-            confidenceLower: _confidenceLower,
-            confidenceUpper: _confidenceUpper,
+            score: _score,
+            suggestedHaircut: _suggestedHaircut,
+            routingDecision: _routingDecision,
             timestamp: block.timestamp,
             signature: _signature
         });
 
         predictions[_redemptionId].push(prediction);
 
-        emit PredictionSubmitted(_redemptionId, msg.sender, _probability, _confidenceLower);
+        emit PredictionSubmitted(_redemptionId, msg.sender, _score, _suggestedHaircut, _routingDecision);
     }
 
     /**
@@ -96,18 +101,31 @@ contract OracleRelay {
         require(preds.length > 0, "OracleRelay: no predictions");
 
         // Aggregate: use weighted average or median
-        // For now, return the most recent high-confidence prediction
+        // For now, return the most recent high-score prediction
         uint256 bestIdx = 0;
-        uint256 bestConfidence = 0;
+        uint256 bestScore = 0;
         
         for (uint256 i = 0; i < preds.length; i++) {
-            if (preds[i].confidenceLower > bestConfidence) {
-                bestConfidence = preds[i].confidenceLower;
+            if (preds[i].score > bestScore) {
+                bestScore = preds[i].score;
                 bestIdx = i;
             }
         }
 
         return preds[bestIdx];
+    }
+    
+    /**
+     * @notice Get all predictions for a redemption
+     * @param _redemptionId Redemption ID
+     * @return preds Array of predictions
+     */
+    function getPredictions(uint256 _redemptionId)
+        external
+        view
+        returns (Prediction[] memory preds)
+    {
+        return predictions[_redemptionId];
     }
 
     /**

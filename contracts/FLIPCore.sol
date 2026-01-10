@@ -4,7 +4,9 @@ pragma solidity ^0.8.24;
 import "./interfaces/IFAsset.sol";
 import "./interfaces/IStateConnector.sol";
 import "./interfaces/IFtsoRegistry.sol";
-import "./InsurancePool.sol";
+import "./EscrowVault.sol";
+import "./SettlementReceipt.sol";
+import "./LiquidityProviderRegistry.sol";
 import "./PriceHedgePool.sol";
 import "./OperatorRegistry.sol";
 import "./DeterministicScoring.sol";
@@ -19,7 +21,9 @@ contract FLIPCore {
     // Dependencies
     IFtsoRegistry public immutable ftsoRegistry;
     IStateConnector public immutable stateConnector;
-    InsurancePool public immutable insurancePool;
+    EscrowVault public immutable escrowVault;
+    SettlementReceipt public immutable settlementReceipt;
+    LiquidityProviderRegistry public immutable lpRegistry;
     PriceHedgePool public immutable priceHedgePool;
     OperatorRegistry public immutable operatorRegistry;
 
@@ -39,10 +43,11 @@ contract FLIPCore {
     enum RedemptionStatus {
         Pending,           // Awaiting oracle prediction
         QueuedForFDC,      // Low confidence, waiting for FDC
-        ProvisionallySettled, // High confidence, user paid
+        EscrowCreated,     // Escrow created, receipt minted
+        ReceiptRedeemed,   // Receipt redeemed (immediate or after FDC)
         Finalized,         // FDC confirmed success
         Failed,            // FDC confirmed failure
-        InsuranceClaimed   // Failure with insurance payout
+        Timeout            // FDC timeout
     }
 
     mapping(uint256 => Redemption) public redemptions;
@@ -57,10 +62,20 @@ contract FLIPCore {
         uint256 timestamp
     );
 
-    event ProvisionalSettlement(
+    event EscrowCreated(
         uint256 indexed redemptionId,
         address indexed user,
+        uint256 receiptId,
         uint256 amount,
+        uint256 timestamp
+    );
+    
+    event ReceiptRedeemed(
+        uint256 indexed redemptionId,
+        uint256 indexed receiptId,
+        address indexed user,
+        uint256 amount,
+        bool immediate,
         uint256 timestamp
     );
 
@@ -72,7 +87,6 @@ contract FLIPCore {
 
     event RedemptionFailed(
         uint256 indexed redemptionId,
-        uint256 insurancePayout,
         uint256 timestamp
     );
 
@@ -92,13 +106,17 @@ contract FLIPCore {
     constructor(
         address _ftsoRegistry,
         address _stateConnector,
-        address _insurancePool,
+        address _escrowVault,
+        address _settlementReceipt,
+        address _lpRegistry,
         address _priceHedgePool,
         address _operatorRegistry
     ) {
         ftsoRegistry = IFtsoRegistry(_ftsoRegistry);
         stateConnector = IStateConnector(_stateConnector);
-        insurancePool = InsurancePool(_insurancePool);
+        escrowVault = EscrowVault(_escrowVault);
+        settlementReceipt = SettlementReceipt(_settlementReceipt);
+        lpRegistry = LiquidityProviderRegistry(_lpRegistry);
         priceHedgePool = PriceHedgePool(_priceHedgePool);
         operatorRegistry = OperatorRegistry(_operatorRegistry);
     }
@@ -231,17 +249,53 @@ contract FLIPCore {
             "FLIPCore: score too low for provisional settlement"
         );
 
-        // Earmark insurance coverage
-        insurancePool.earmarkCoverage(_redemptionId, redemption.amount);
-
-        // Transfer provisional settlement to user
-        // In production, this would transfer stablecoin/collateral
-        redemption.status = RedemptionStatus.ProvisionallySettled;
-        redemption.provisionalSettled = true;
-
-        emit ProvisionalSettlement(
+        // Calculate suggested haircut from score
+        uint256 suggestedHaircut = DeterministicScoring.calculateSuggestedHaircut(result);
+        
+        // Try to match liquidity provider
+        (address matchedLP, uint256 availableAmount) = lpRegistry.matchLiquidity(
+            redemption.asset,
+            redemption.amount,
+            suggestedHaircut
+        );
+        
+        bool lpFunded = (matchedLP != address(0) && availableAmount >= redemption.amount);
+        address lpAddress = lpFunded ? matchedLP : address(0);
+        
+        // If LP matched, use LP's minHaircut; otherwise use suggested haircut
+        uint256 finalHaircut = suggestedHaircut;
+        if (lpFunded) {
+            LiquidityProviderRegistry.LPPosition memory lpPos = lpRegistry.getPosition(matchedLP, redemption.asset);
+            finalHaircut = lpPos.minHaircut;
+        }
+        
+        // Create escrow (LP-funded or user-wait path)
+        escrowVault.createEscrow(
             _redemptionId,
             redemption.user,
+            lpAddress,
+            redemption.asset,
+            redemption.amount,
+            lpFunded
+        );
+        
+        // Mint settlement receipt
+        uint256 receiptId = settlementReceipt.mintReceipt(
+            redemption.user,
+            _redemptionId,
+            redemption.asset,
+            redemption.amount,
+            finalHaircut,
+            lpAddress
+        );
+
+        redemption.status = RedemptionStatus.EscrowCreated;
+        redemption.provisionalSettled = true;
+
+        emit EscrowCreated(
+            _redemptionId,
+            redemption.user,
+            receiptId,
             redemption.amount,
             block.timestamp
         );
@@ -260,17 +314,27 @@ contract FLIPCore {
     ) external {
         Redemption storage redemption = redemptions[_redemptionId];
         require(
-            redemption.status == RedemptionStatus.ProvisionallySettled ||
+            redemption.status == RedemptionStatus.EscrowCreated ||
             redemption.status == RedemptionStatus.QueuedForFDC,
             "FLIPCore: invalid status"
         );
 
         redemption.fdcRequestId = _requestId;
 
+        // FDC is the ADJUDICATOR - its decision is final
+        // Release escrow based on FDC outcome
+        escrowVault.releaseOnFDC(_redemptionId, _success, _requestId);
+        
+        // Update receipt FDC round ID (if receipt exists)
+        // Note: redemptionToTokenId is a public mapping, accessed via getter
+        // For now, we'll update it if escrow was created (receipt exists)
+        if (redemption.status == RedemptionStatus.EscrowCreated) {
+            settlementReceipt.updateFDCRoundId(_redemptionId, _requestId);
+        }
+
         if (_success) {
             // FDC confirmed success
             redemption.status = RedemptionStatus.Finalized;
-            insurancePool.releaseCoverage(_redemptionId);
             
             // Reward operator
             operatorRegistry.distributeRewards();
@@ -280,7 +344,8 @@ contract FLIPCore {
 
             emit RedemptionFinalized(_redemptionId, true, block.timestamp);
         } else {
-            // FDC confirmed failure - trigger insurance payout
+            // FDC confirmed failure
+            redemption.status = RedemptionStatus.Failed;
             claimFailure(_redemptionId);
         }
     }
@@ -292,15 +357,14 @@ contract FLIPCore {
     function claimFailure(uint256 _redemptionId) public {
         Redemption storage redemption = redemptions[_redemptionId];
         require(
-            redemption.status == RedemptionStatus.ProvisionallySettled ||
+            redemption.status == RedemptionStatus.EscrowCreated ||
             redemption.status == RedemptionStatus.Failed,
             "FLIPCore: invalid status for claim"
         );
 
-        redemption.status = RedemptionStatus.InsuranceClaimed;
-        
-        // Insurance pool pays out (user already received funds)
-        uint256 payout = insurancePool.claimFailure(_redemptionId, redemption.amount);
+        // Escrow already released by EscrowVault.releaseOnFDC()
+        // On failure: if LP-funded, LP loses funds; if user-wait, user gets refund
+        // No additional action needed here - escrow handles it
         
         // Slash operator who approved provisional settlement (if applicable)
         // In deterministic model, operators are still responsible for decisions
@@ -314,7 +378,61 @@ contract FLIPCore {
         // Settle price hedge
         priceHedgePool.settleHedge(redemption.hedgeId);
 
-        emit RedemptionFailed(_redemptionId, payout, block.timestamp);
+        emit RedemptionFailed(_redemptionId, block.timestamp);
+    }
+    
+    /**
+     * @notice Check timeout and release escrow if FDC didn't attest in time
+     * @param _redemptionId Redemption ID
+     */
+    function checkTimeout(uint256 _redemptionId) external {
+        Redemption storage redemption = redemptions[_redemptionId];
+        require(
+            redemption.status == RedemptionStatus.EscrowCreated,
+            "FLIPCore: invalid status"
+        );
+        
+        // Check if escrow can timeout
+        require(
+            escrowVault.canTimeout(_redemptionId),
+            "FLIPCore: not timed out"
+        );
+        
+        // Trigger timeout release
+        escrowVault.timeoutRelease(_redemptionId);
+        redemption.status = RedemptionStatus.Timeout;
+    }
+    
+    /**
+     * @notice Trigger Firelight Protocol for catastrophic backstop
+     * @dev Only called if:
+     *      1. FDC failed
+     *      2. Timeout expired
+     *      3. LP capital exhausted
+     *      Firelight handles catastrophic cases
+     * @param _redemptionId Redemption ID
+     */
+    function triggerFirelight(uint256 _redemptionId) external {
+        Redemption storage redemption = redemptions[_redemptionId];
+        require(
+            redemption.status == RedemptionStatus.Failed ||
+            redemption.status == RedemptionStatus.Timeout,
+            "FLIPCore: invalid status for Firelight"
+        );
+        
+        // Check escrow status
+        EscrowVault.EscrowStatus escrowStatus = escrowVault.getEscrowStatus(_redemptionId);
+        require(
+            escrowStatus == EscrowVault.EscrowStatus.Failed ||
+            escrowStatus == EscrowVault.EscrowStatus.Timeout,
+            "FLIPCore: escrow not in failure state"
+        );
+        
+        // In production, this would call Firelight Protocol interface
+        // For now, emit event - actual Firelight integration TBD
+        // Firelight would handle catastrophic insurance payout
+        
+        // Note: Firelight integration is optional and TBD
     }
 
     /**

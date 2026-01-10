@@ -10,7 +10,8 @@ contract OperatorRegistry {
     struct Operator {
         uint256 stake;
         uint256 totalPredictions;
-        uint256 failedPredictions;
+        uint256 routingErrors;      // Incorrect routing decisions (FastLane when should QueueFDC)
+        uint256 haircutErrors;       // Haircut too low (caused LP loss)
         uint256 rewards;
         bool active;
     }
@@ -61,26 +62,49 @@ contract OperatorRegistry {
     }
 
     /**
-     * @notice Slash operator stake
+     * @notice Slash operator stake for routing or haircut errors
+     * @dev Slashing only occurs for:
+     *      - Routing errors: Operator recommended FastLane when should QueueFDC (caused incorrect routing)
+     *      - Haircut errors: Operator suggested haircut too low (caused LP loss)
+     *      Predictions are advisory - slashing is NOT for "incorrect predictions"
      * @param _operator Operator address
      * @param _amount Amount to slash
+     * @param _reason Reason for slashing: "routing_error" or "haircut_error"
      */
-    function slashOperator(address _operator, uint256 _amount) external {
-        require(msg.sender == address(this) || msg.sender == owner, "OperatorRegistry: unauthorized");
+    function slashOperator(
+        address _operator,
+        uint256 _amount,
+        string memory _reason
+    ) external {
+        require(
+            msg.sender == address(this) || msg.sender == owner,
+            "OperatorRegistry: unauthorized"
+        );
         require(operators[_operator].active, "OperatorRegistry: operator not active");
+        require(
+            keccak256(bytes(_reason)) == keccak256(bytes("routing_error")) ||
+            keccak256(bytes(_reason)) == keccak256(bytes("haircut_error")),
+            "OperatorRegistry: invalid reason"
+        );
 
         uint256 availableStake = operators[_operator].stake;
         uint256 slashAmount = _amount > availableStake ? availableStake : _amount;
 
         operators[_operator].stake -= slashAmount;
-        operators[_operator].failedPredictions++;
         totalStaked -= slashAmount;
 
-        // Check if miss rate exceeds threshold
-        uint256 missRate = (operators[_operator].failedPredictions * 1000000) /
-            (operators[_operator].totalPredictions + 1);
+        // Track error type
+        if (keccak256(bytes(_reason)) == keccak256(bytes("routing_error"))) {
+            operators[_operator].routingErrors++;
+        } else {
+            operators[_operator].haircutErrors++;
+        }
+
+        // Check if error rate exceeds threshold (1% of predictions)
+        uint256 totalErrors = operators[_operator].routingErrors + operators[_operator].haircutErrors;
+        uint256 errorRate = (totalErrors * 1000000) / (operators[_operator].totalPredictions + 1);
         
-        if (missRate > SLASH_THRESHOLD_MISS_RATE) {
+        if (errorRate > SLASH_THRESHOLD_MISS_RATE) {
             // Additional 20% penalty
             uint256 penalty = (operators[_operator].stake * SLASH_PENALTY_PERCENT) / 1000000;
             if (penalty > 0 && penalty <= operators[_operator].stake) {
@@ -90,7 +114,7 @@ contract OperatorRegistry {
             }
         }
 
-        emit OperatorSlashed(_operator, slashAmount, "Incorrect prediction");
+        emit OperatorSlashed(_operator, slashAmount, _reason);
     }
 
     /**
@@ -105,18 +129,28 @@ contract OperatorRegistry {
      * @notice Get operator statistics
      * @param _operator Operator address
      * @return operatorStake Current stake amount
-     * @return missRate Miss rate (scaled: 1000000 = 100%)
+     * @return routingErrors Number of routing errors
+     * @return haircutErrors Number of haircut errors
+     * @return errorRate Error rate (scaled: 1000000 = 100%)
      * @return rewards Accumulated rewards
      */
     function getOperatorStats(address _operator)
         external
         view
-        returns (uint256 operatorStake, uint256 missRate, uint256 rewards)
+        returns (
+            uint256 operatorStake,
+            uint256 routingErrors,
+            uint256 haircutErrors,
+            uint256 errorRate,
+            uint256 rewards
+        )
     {
         Operator memory op = operators[_operator];
         operatorStake = op.stake;
-        missRate = op.totalPredictions > 0
-            ? (op.failedPredictions * 1000000) / op.totalPredictions
+        routingErrors = op.routingErrors;
+        haircutErrors = op.haircutErrors;
+        errorRate = op.totalPredictions > 0
+            ? ((op.routingErrors + op.haircutErrors) * 1000000) / op.totalPredictions
             : 0;
         rewards = op.rewards;
     }

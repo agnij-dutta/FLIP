@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Deploy FLIP contracts to Coston2 testnet
-# Usage: ./scripts/deploy-coston2.sh
+# Deploy FLIP contracts to Songbird (Flare Canary Network)
+# Usage: ./scripts/deploy-songbird.sh
 
 set -e
 
-echo "🚀 Deploying FLIP contracts to Coston2 testnet..."
+echo "🚀 Deploying FLIP contracts to Songbird..."
 
 # Check if .env file exists
 if [ ! -f .env ]; then
@@ -13,7 +13,7 @@ if [ ! -f .env ]; then
     cat > .env << EOF
 # Flare Network Configuration
 PRIVATE_KEY=your_private_key_here
-COSTON2_RPC_URL=https://coston2-api.flare.network/ext/C/rpc
+SONGBIRD_RPC_URL=https://songbird-api.flare.network/ext/C/rpc
 FLARE_RPC_URL=https://flare-api.flare.network/ext/C/rpc
 
 # Contract Addresses (will be filled after deployment)
@@ -37,19 +37,19 @@ if [ -z "$PRIVATE_KEY" ] || [ "$PRIVATE_KEY" == "your_private_key_here" ]; then
     exit 1
 fi
 
-# Set network to Coston2
-export NETWORK=coston2
-export RPC_URL=$COSTON2_RPC_URL
+# Set network to Songbird
+export NETWORK=songbird
+export RPC_URL=$SONGBIRD_RPC_URL
 
 echo "📦 Compiling contracts..."
 forge build
 
-echo "🔐 Deploying contracts to Coston2..."
+echo "🔐 Deploying contracts to Songbird..."
 
 # Deploy EscrowVault
 echo "Deploying EscrowVault..."
 ESCROW_VAULT=$(forge create EscrowVault \
-    --rpc-url $COSTON2_RPC_URL \
+    --rpc-url $SONGBIRD_RPC_URL \
     --private-key $PRIVATE_KEY \
     --legacy \
     | grep "Deployed to:" | awk '{print $3}')
@@ -59,7 +59,7 @@ echo "✅ EscrowVault deployed to: $ESCROW_VAULT"
 # Deploy SettlementReceipt (needs EscrowVault address)
 echo "Deploying SettlementReceipt..."
 SETTLEMENT_RECEIPT=$(forge create SettlementReceipt \
-    --rpc-url $COSTON2_RPC_URL \
+    --rpc-url $SONGBIRD_RPC_URL \
     --private-key $PRIVATE_KEY \
     --constructor-args $ESCROW_VAULT \
     --legacy \
@@ -70,17 +70,17 @@ echo "✅ SettlementReceipt deployed to: $SETTLEMENT_RECEIPT"
 # Deploy LiquidityProviderRegistry
 echo "Deploying LiquidityProviderRegistry..."
 LIQUIDITY_PROVIDER_REGISTRY=$(forge create LiquidityProviderRegistry \
-    --rpc-url $COSTON2_RPC_URL \
+    --rpc-url $SONGBIRD_RPC_URL \
     --private-key $PRIVATE_KEY \
     --legacy \
     | grep "Deployed to:" | awk '{print $3}')
 
 echo "✅ LiquidityProviderRegistry deployed to: $LIQUIDITY_PROVIDER_REGISTRY"
 
-# Deploy OperatorRegistry (with min stake of 1000 FLR)
+# Deploy OperatorRegistry (with min stake of 1000 SGB)
 echo "Deploying OperatorRegistry..."
 OPERATOR_REGISTRY=$(forge create OperatorRegistry \
-    --rpc-url $COSTON2_RPC_URL \
+    --rpc-url $SONGBIRD_RPC_URL \
     --private-key $PRIVATE_KEY \
     --constructor-args 1000000000000000000000 \
     --legacy \
@@ -89,11 +89,11 @@ OPERATOR_REGISTRY=$(forge create OperatorRegistry \
 echo "✅ OperatorRegistry deployed to: $OPERATOR_REGISTRY"
 
 # Deploy PriceHedgePool (needs FTSO Registry address)
-# For Coston2, use the actual FTSO Registry address
+# For Songbird, use the actual FTSO Registry address
 FTSO_REGISTRY="0x0000000000000000000000000000000000000000" # Update with actual address
 echo "Deploying PriceHedgePool..."
 PRICE_HEDGE_POOL=$(forge create PriceHedgePool \
-    --rpc-url $COSTON2_RPC_URL \
+    --rpc-url $SONGBIRD_RPC_URL \
     --private-key $PRIVATE_KEY \
     --constructor-args $FTSO_REGISTRY \
     --legacy \
@@ -101,7 +101,7 @@ PRICE_HEDGE_POOL=$(forge create PriceHedgePool \
 
 echo "✅ PriceHedgePool deployed to: $PRICE_HEDGE_POOL"
 
-# Deploy StateConnector mock (for testing) or use actual address
+# Deploy StateConnector (use actual address)
 STATE_CONNECTOR="0x0000000000000000000000000000000000000000" # Update with actual address
 
 # Firelight Protocol address (optional, use zero address if not available)
@@ -110,7 +110,7 @@ FIRELIGHT_PROTOCOL="0x0000000000000000000000000000000000000000" # Update with ac
 # Deploy FLIPCore (v2 with escrow-based model)
 echo "Deploying FLIPCore (v2)..."
 FLIP_CORE=$(forge create FLIPCore \
-    --rpc-url $COSTON2_RPC_URL \
+    --rpc-url $SONGBIRD_RPC_URL \
     --private-key $PRIVATE_KEY \
     --constructor-args $FTSO_REGISTRY $STATE_CONNECTOR $ESCROW_VAULT $SETTLEMENT_RECEIPT $LIQUIDITY_PROVIDER_REGISTRY $PRICE_HEDGE_POOL $OPERATOR_REGISTRY $FIRELIGHT_PROTOCOL \
     --legacy \
@@ -121,12 +121,12 @@ echo "✅ FLIPCore deployed to: $FLIP_CORE"
 # Set FLIPCore addresses in EscrowVault and LiquidityProviderRegistry
 echo "Configuring EscrowVault and LiquidityProviderRegistry..."
 cast send $ESCROW_VAULT "setFLIPCore(address)" $FLIP_CORE \
-    --rpc-url $COSTON2_RPC_URL \
+    --rpc-url $SONGBIRD_RPC_URL \
     --private-key $PRIVATE_KEY \
     --legacy
 
 cast send $LIQUIDITY_PROVIDER_REGISTRY "setFLIPCore(address)" $FLIP_CORE \
-    --rpc-url $COSTON2_RPC_URL \
+    --rpc-url $SONGBIRD_RPC_URL \
     --private-key $PRIVATE_KEY \
     --legacy
 
@@ -135,13 +135,13 @@ echo "✅ Configuration complete"
 # Save addresses to .env
 cat >> .env << EOF
 
-# Deployed on Coston2 Testnet (v2)
-COSTON2_FLIP_CORE=$FLIP_CORE
-COSTON2_ESCROW_VAULT=$ESCROW_VAULT
-COSTON2_SETTLEMENT_RECEIPT=$SETTLEMENT_RECEIPT
-COSTON2_LIQUIDITY_PROVIDER_REGISTRY=$LIQUIDITY_PROVIDER_REGISTRY
-COSTON2_PRICE_HEDGE_POOL=$PRICE_HEDGE_POOL
-COSTON2_OPERATOR_REGISTRY=$OPERATOR_REGISTRY
+# Deployed on Songbird (v2)
+SONGBIRD_FLIP_CORE=$FLIP_CORE
+SONGBIRD_ESCROW_VAULT=$ESCROW_VAULT
+SONGBIRD_SETTLEMENT_RECEIPT=$SETTLEMENT_RECEIPT
+SONGBIRD_LIQUIDITY_PROVIDER_REGISTRY=$LIQUIDITY_PROVIDER_REGISTRY
+SONGBIRD_PRICE_HEDGE_POOL=$PRICE_HEDGE_POOL
+SONGBIRD_OPERATOR_REGISTRY=$OPERATOR_REGISTRY
 EOF
 
 echo ""
@@ -156,10 +156,5 @@ echo "  PriceHedgePool: $PRICE_HEDGE_POOL"
 echo "  OperatorRegistry: $OPERATOR_REGISTRY"
 echo ""
 echo "📝 Update frontend/app/page.tsx with FLIP_CORE_ADDRESS=$FLIP_CORE"
-echo "🔍 View on explorer: https://coston2.testnet.flarescan.com/address/$FLIP_CORE"
-
-
-
-
-
+echo "🔍 View on explorer: https://songbird-explorer.flare.network/address/$FLIP_CORE"
 

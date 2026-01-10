@@ -3,7 +3,9 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../../contracts/FLIPCore.sol";
-import "../../contracts/InsurancePool.sol";
+import "../../contracts/EscrowVault.sol";
+import "../../contracts/SettlementReceipt.sol";
+import "../../contracts/LiquidityProviderRegistry.sol";
 import "../../contracts/PriceHedgePool.sol";
 import "../../contracts/OperatorRegistry.sol";
 import "../../contracts/DeterministicScoring.sol";
@@ -13,7 +15,9 @@ import "./mocks/MockFAsset.sol";
 
 contract FLIPCoreTest is Test {
     FLIPCore public flipCore;
-    InsurancePool public insurancePool;
+    EscrowVault public escrowVault;
+    SettlementReceipt public settlementReceipt;
+    LiquidityProviderRegistry public lpRegistry;
     PriceHedgePool public priceHedgePool;
     OperatorRegistry public operatorRegistry;
     MockFtsoRegistry public ftsoRegistry;
@@ -27,18 +31,30 @@ contract FLIPCoreTest is Test {
         // Deploy mocks
         ftsoRegistry = new MockFtsoRegistry();
         stateConnector = new MockStateConnector();
-        insurancePool = new InsurancePool();
+        escrowVault = new EscrowVault();
+        settlementReceipt = new SettlementReceipt(address(escrowVault));
+        lpRegistry = new LiquidityProviderRegistry();
         priceHedgePool = new PriceHedgePool(address(ftsoRegistry));
         operatorRegistry = new OperatorRegistry(1000 ether);
 
-        // Deploy FLIPCore (no OracleRelay needed)
+        // Set FLIPCore addresses (will be set after FLIPCore deployment)
+        // Deploy FLIPCore
         flipCore = new FLIPCore(
             address(ftsoRegistry),
             address(stateConnector),
-            address(insurancePool),
+            address(escrowVault),
+            address(settlementReceipt),
+            address(lpRegistry),
             address(priceHedgePool),
             address(operatorRegistry)
         );
+        
+        // Set FLIPCore in escrow vault and LP registry
+        vm.prank(address(escrowVault.owner()));
+        escrowVault.setFLIPCore(address(flipCore));
+        
+        vm.prank(address(lpRegistry.owner()));
+        lpRegistry.setFLIPCore(address(flipCore));
 
         // Deploy mock FAsset
         fAsset = new MockFAsset();
@@ -80,10 +96,6 @@ contract FLIPCoreTest is Test {
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
         vm.stopPrank();
 
-        // Fund insurance pool
-        vm.deal(address(insurancePool), 10000 ether);
-        insurancePool.replenishPool{value: 10000 ether}();
-
         // Calculate score parameters (high confidence scenario)
         uint256 priceVolatility = 5000; // 0.5% (very low volatility)
         uint256 agentSuccessRate = 995000; // 99.5% success rate
@@ -100,9 +112,13 @@ contract FLIPCoreTest is Test {
 
         assertEq(
             uint8(flipCore.getRedemptionStatus(redemptionId)), 
-            uint8(FLIPCore.RedemptionStatus.ProvisionallySettled),
-            "Should be provisionally settled"
+            uint8(FLIPCore.RedemptionStatus.EscrowCreated),
+            "Should have escrow created"
         );
+        
+        // Check escrow was created
+        EscrowVault.EscrowStatus escrowStatus = escrowVault.getEscrowStatus(redemptionId);
+        assertEq(uint8(escrowStatus), uint8(EscrowVault.EscrowStatus.Created), "Escrow should be created");
     }
 
     function testEvaluateRedemption() public {
@@ -125,9 +141,9 @@ contract FLIPCoreTest is Test {
             agentStake
         );
 
-        // Should be high confidence (decision = 2 = ProvisionalSettle)
+        // Should be high confidence (decision = 1 = FastLane)
         assertGe(score, 997000, "Score should be >= 99.7%");
-        assertEq(decision, 2, "Decision should be ProvisionalSettle");
+        assertEq(decision, 1, "Decision should be FastLane");
     }
 
     function testEvaluateRedemption_LowConfidence() public {
@@ -163,10 +179,6 @@ contract FLIPCoreTest is Test {
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
         vm.stopPrank();
 
-        // Fund insurance pool
-        vm.deal(address(insurancePool), 10000 ether);
-        insurancePool.replenishPool{value: 10000 ether}();
-
         // Low confidence parameters
         uint256 priceVolatility = 60000; // 6%
         uint256 agentSuccessRate = 900000; // 90%
@@ -183,17 +195,13 @@ contract FLIPCoreTest is Test {
         );
     }
 
-    function testClaimFailure() public {
+    function testHandleFDCAttestation_Failure() public {
         uint256 amount = 100 ether;
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
         vm.stopPrank();
-
-        // Fund insurance pool
-        vm.deal(address(insurancePool), 10000 ether);
-        insurancePool.replenishPool{value: 10000 ether}();
 
         // Finalize provisional with high confidence parameters
         vm.prank(operator);
@@ -208,7 +216,60 @@ contract FLIPCoreTest is Test {
         vm.prank(operator);
         flipCore.handleFDCAttestation(redemptionId, 1, false);
 
-        assertEq(uint8(flipCore.getRedemptionStatus(redemptionId)), uint8(FLIPCore.RedemptionStatus.InsuranceClaimed));
+        assertEq(uint8(flipCore.getRedemptionStatus(redemptionId)), uint8(FLIPCore.RedemptionStatus.Failed));
+        
+        // Check escrow status
+        EscrowVault.EscrowStatus escrowStatus = escrowVault.getEscrowStatus(redemptionId);
+        assertEq(uint8(escrowStatus), uint8(EscrowVault.EscrowStatus.Failed), "Escrow should be failed");
+    }
+    
+    function testHandleFDCAttestation_Success() public {
+        uint256 amount = 100 ether;
+        
+        vm.startPrank(user);
+        fAsset.mint(user, amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        vm.stopPrank();
+
+        // Finalize provisional
+        vm.prank(operator);
+        flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+
+        // FDC confirms success
+        vm.prank(operator);
+        flipCore.handleFDCAttestation(redemptionId, 1, true);
+
+        assertEq(uint8(flipCore.getRedemptionStatus(redemptionId)), uint8(FLIPCore.RedemptionStatus.Finalized));
+        
+        // Check escrow status
+        EscrowVault.EscrowStatus escrowStatus = escrowVault.getEscrowStatus(redemptionId);
+        assertEq(uint8(escrowStatus), uint8(EscrowVault.EscrowStatus.Released), "Escrow should be released");
+    }
+    
+    function testCheckTimeout() public {
+        uint256 amount = 100 ether;
+        
+        vm.startPrank(user);
+        fAsset.mint(user, amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        vm.stopPrank();
+
+        // Finalize provisional
+        vm.prank(operator);
+        flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+
+        // Fast forward past timeout
+        vm.warp(block.timestamp + 601); // 601 seconds > 600 timeout
+
+        // Check timeout
+        vm.prank(operator);
+        flipCore.checkTimeout(redemptionId);
+
+        assertEq(uint8(flipCore.getRedemptionStatus(redemptionId)), uint8(FLIPCore.RedemptionStatus.Timeout));
+        
+        // Check escrow status
+        EscrowVault.EscrowStatus escrowStatus = escrowVault.getEscrowStatus(redemptionId);
+        assertEq(uint8(escrowStatus), uint8(EscrowVault.EscrowStatus.Timeout), "Escrow should be timed out");
     }
 }
 
