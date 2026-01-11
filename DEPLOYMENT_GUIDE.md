@@ -1,130 +1,144 @@
-# FLIP Protocol Deployment Guide
+# FLIP v2 Deployment Guide - Coston2 Testnet
 
 ## Prerequisites
 
-1. **Foundry installed** - See `scripts/install-foundry.sh`
-2. **Testnet FLR tokens** - Get from [Coston2 Faucet](https://coston-faucet.towolabs.com/)
-3. **Private key** - For contract deployment (keep secure!)
-4. **RPC access** - Coston2 testnet RPC endpoint
+1. **Environment Setup**:
+   ```bash
+   # Install Foundry
+   curl -L https://foundry.paradigm.xyz | bash
+   foundryup
+   
+   # Install dependencies
+   forge install
+   ```
+
+2. **Wallet Setup**:
+   - Get testnet tokens from [Coston2 Faucet](https://faucet.coston2.flare.network/)
+   - Ensure you have C2FLR tokens for gas fees
+
+3. **Environment Variables**:
+   ```bash
+   # Create .env file
+   cp .env.example .env
+   
+   # Fill in:
+   PRIVATE_KEY=your_private_key_here
+   COSTON2_RPC_URL=https://coston2-api.flare.network/ext/C/rpc
+   ```
+
+## Flare Contract Addresses (Coston2)
+
+Before deployment, you need to find the actual Flare contract addresses:
+
+### Finding Flare Contracts
+
+1. **FTSO Registry**:
+   - Check Flare documentation: https://docs.flare.network/
+   - Or use Flare explorer: https://coston2-explorer.flare.network
+   - Look for "FTSO Registry" or "FtsoRegistry" contracts
+
+2. **State Connector**:
+   - Usually at a known address
+   - Check Flare documentation for State Connector address
+
+3. **FAssets** (optional for initial testing):
+   - FXRP, FBTC, FDOGE addresses
+   - Check Flare documentation
+
+### Update Deployment Script
+
+Edit `scripts/deploy-coston2.sh` and update:
+```bash
+FTSO_REGISTRY="0x..." # Actual FTSO Registry address
+STATE_CONNECTOR="0x..." # Actual State Connector address
+```
 
 ## Deployment Steps
 
-### 1. Configure Environment
+1. **Compile Contracts**:
+   ```bash
+   forge build
+   ```
 
-Create a `.env` file in the project root:
+2. **Run Tests** (ensure all pass):
+   ```bash
+   forge test
+   ```
 
-```bash
-PRIVATE_KEY=your_private_key_here
-COSTON2_RPC_URL=https://coston2-api.flare.network/ext/C/rpc
-FLARE_RPC_URL=https://flare-api.flare.network/ext/C/rpc
-```
+3. **Deploy to Coston2**:
+   ```bash
+   chmod +x scripts/deploy-coston2.sh
+   ./scripts/deploy-coston2.sh
+   ```
 
-### 2. Get Contract Addresses
+4. **Verify Deployment**:
+   - Check contract addresses in output
+   - Verify on explorer: https://coston2-explorer.flare.network
 
-Before deploying, you need the following Flare contract addresses:
-
-- **FTSO Registry:** Query from `FlareContractRegistry` at `0xaD67FE66660Fb8dFE9d6b1b4240d8650e30F6019`
-- **StateConnector:** Query from `FlareContractRegistry`
-- **FAsset addresses:** For FXRP, FBTC, etc.
-
-You can use the helper script:
-```bash
-python3 scripts/get-fasset-addresses.py
-```
-
-### 3. Deploy Contracts
-
-Run the deployment script:
-```bash
-./scripts/deploy-coston2.sh
-```
-
-This will:
-1. Compile all contracts
-2. Deploy in the correct order:
-   - InsurancePool
-   - OperatorRegistry
-   - PriceHedgePool
-   - FLIPCore
-3. Save addresses to `.env`
-
-### 4. Initialize Contracts
+## Post-Deployment Configuration
 
 After deployment, you need to:
 
-1. **Fund Insurance Pool:**
-```bash
-cast send $INSURANCE_POOL_ADDRESS "replenishPool()" --value 1000ether --rpc-url $COSTON2_RPC_URL --private-key $PRIVATE_KEY
-```
+1. **Set FLIPCore addresses** (done automatically by script):
+   - EscrowVault.setFLIPCore()
+   - LiquidityProviderRegistry.setFLIPCore()
+   - SettlementReceipt.setFLIPCore()
 
-2. **Register Operators:**
-```bash
-cast send $OPERATOR_REGISTRY_ADDRESS "stake(uint256)" 1000000000000000000000 --value 1000ether --rpc-url $COSTON2_RPC_URL --private-key $PRIVATE_KEY
-```
+2. **Verify Contract Interactions**:
+   ```bash
+   # Check FLIPCore is set in EscrowVault
+   cast call <ESCROW_VAULT> "flipCore()" --rpc-url $COSTON2_RPC_URL
+   
+   # Check FLIPCore is set in LP Registry
+   cast call <LP_REGISTRY> "flipCore()" --rpc-url $COSTON2_RPC_URL
+   ```
 
-3. **Set Monthly Liability Estimate:**
-```bash
-cast send $INSURANCE_POOL_ADDRESS "setMonthlyLiabilityEstimate(uint256)" 10000000000000000000000 --rpc-url $COSTON2_RPC_URL --private-key $PRIVATE_KEY
-```
+## Testing on Coston2
 
-### 5. Update Frontend
+1. **Request Redemption** (if FAsset available):
+   ```bash
+   cast send <FLIP_CORE> "requestRedemption(uint256,address)" \
+      1000000000000000000 <FASSET_ADDRESS> \
+      --rpc-url $COSTON2_RPC_URL \
+      --private-key $PRIVATE_KEY
+   ```
 
-Update `frontend/app/page.tsx` with deployed contract addresses:
-```typescript
-const FLIP_CORE_ADDRESS = '0x...'; // From deployment
-const FASSET_ADDRESS = '0x...'; // FXRP address on Coston2
-```
+2. **Check Redemption Status**:
+   ```bash
+   cast call <FLIP_CORE> "getRedemptionStatus(uint256)" 0 \
+      --rpc-url $COSTON2_RPC_URL
+   ```
 
-### 6. Test on Testnet
-
-1. **Request a redemption:**
-   - Use the frontend or call `requestRedemption()` directly
-   - Monitor transaction on [Coston2 Explorer](https://coston2.testnet.flarescan.com)
-
-2. **Monitor FTSO prices:**
-   - Check that PriceHedgePool is receiving price updates
-   - Verify price locking works correctly
-
-3. **Test FDC integration:**
-   - Submit a redemption request
-   - Wait for FDC attestation
-   - Verify finalization works
-
-## Verification
-
-Verify contracts on explorer:
-```bash
-# FLIPCore
-cast code $FLIP_CORE_ADDRESS --rpc-url $COSTON2_RPC_URL
-
-# Check contract state
-cast call $FLIP_CORE_ADDRESS "nextRedemptionId()" --rpc-url $COSTON2_RPC_URL
-```
+3. **Monitor Events**:
+   - Use Flare explorer to monitor contract events
+   - Or use `cast logs` to query events
 
 ## Troubleshooting
 
-### "Insufficient funds"
-- Get testnet FLR from faucet
-- Check account balance: `cast balance $YOUR_ADDRESS --rpc-url $COSTON2_RPC_URL`
+### Common Issues
 
-### "Contract not found"
-- Verify contract was deployed successfully
-- Check transaction receipt on explorer
+1. **"Insufficient funds"**:
+   - Get more C2FLR from faucet
+   - Check gas price settings
 
-### "Invalid FTSO Registry address"
-- Query correct address from FlareContractRegistry
-- Update deployment script with correct address
+2. **"Contract not found"**:
+   - Verify Flare contract addresses are correct
+   - Check RPC URL is correct
+
+3. **"Invalid constructor arguments"**:
+   - Verify constructor parameters match contract
+   - Check address format (must be checksummed)
 
 ## Next Steps
 
-After successful deployment:
-1. Test with real FAsset redemptions
-2. Monitor pool utilization
-3. Test operator staking and slashing
-4. Collect metrics for model validation
+1. ✅ Deploy contracts to Coston2
+2. ✅ Verify contract interactions
+3. ⏳ Test with real FAssets (if available)
+4. ⏳ Test FTSO price feeds
+5. ⏳ Test FDC attestations
+6. ⏳ Monitor and iterate
 
+---
 
-
-
-
-
+**Last Updated**: $(date)
+**Version**: FLIP v2.0

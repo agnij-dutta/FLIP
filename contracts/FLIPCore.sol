@@ -321,14 +321,13 @@ contract FLIPCore {
         redemption.fdcRequestId = _requestId;
 
         // FDC is the ADJUDICATOR - its decision is final
-        // Release escrow based on FDC outcome
-        escrowVault.releaseOnFDC(_redemptionId, _success, _requestId);
-        
-        // Update receipt FDC round ID (if receipt exists)
-        // FLIPCore is authorized to call this
+        // Only release escrow if one was created (EscrowCreated status)
         if (redemption.status == RedemptionStatus.EscrowCreated) {
+            escrowVault.releaseOnFDC(_redemptionId, _success, _requestId);
+            // Update receipt FDC round ID
             settlementReceipt.updateFDCRoundId(_redemptionId, _requestId);
         }
+        // For QueuedForFDC, no escrow exists - FDC result is just recorded
 
         if (_success) {
             // FDC confirmed success

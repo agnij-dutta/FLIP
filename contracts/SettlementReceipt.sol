@@ -144,6 +144,7 @@ contract SettlementReceipt {
         
         // In production, this would transfer funds from escrow/LP to user
         // For now, emit event - actual transfer handled by EscrowVault/FLIPCore
+        // Note: FLIPCore should listen to this event and update redemption status
         
         emit ReceiptRedeemed(_receiptId, metadata.redemptionId, msg.sender, redeemAmount, true);
     }

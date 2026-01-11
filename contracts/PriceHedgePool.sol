@@ -34,7 +34,7 @@ contract PriceHedgePool {
      * @notice Lock price for an asset at redemption request
      * @param _asset Asset address
      * @param _amount Amount being hedged
-     * @return lockedPrice Locked price from FTSO
+     * @return lockedPrice Locked price from FTSO (scaled to 18 decimals)
      * @return hedgeId Hedge ID
      */
     function lockPrice(address _asset, uint256 _amount)
