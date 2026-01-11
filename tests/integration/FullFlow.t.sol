@@ -56,14 +56,16 @@ contract FullFlowTest is Test {
         
         vm.prank(address(lpRegistry.owner()));
         lpRegistry.setFLIPCore(address(flipCore));
+        
+        vm.prank(address(settlementReceipt.owner()));
+        settlementReceipt.setFLIPCore(address(flipCore));
 
         // Deploy mock FAsset
         fAsset = new MockFAsset();
         
         // Setup
         vm.deal(user, 10000 ether);
-        vm.deal(operator, 10000 ether);
-        vm.deal(address(this), 100000 ether);
+        vm.deal(operator, 200000 ether); // Give operator enough for stake
         
         // Register operator (automatic on first stake)
         vm.prank(operator);

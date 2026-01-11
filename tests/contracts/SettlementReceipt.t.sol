@@ -98,6 +98,9 @@ contract SettlementReceiptTest is Test {
         
         // FDC confirms success
         escrowVault.releaseOnFDC(redemptionId, true, fdcRoundId);
+        // updateFDCRoundId should be called by escrow vault, but for testing we call it directly
+        // In production, EscrowVault would call this
+        vm.prank(address(escrowVault));
         settlementReceipt.updateFDCRoundId(redemptionId, fdcRoundId);
         
         // User redeems after FDC

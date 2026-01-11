@@ -89,6 +89,17 @@ contract LiquidityProviderRegistry {
      * @param _amount Amount to deposit
      * @param _minHaircut Minimum haircut LP accepts (scaled: 1000000 = 100%)
      * @param _maxDelay Maximum delay LP tolerates (seconds)
+     * 
+     * HAIRCUT CLEARING CONDITION (Appendix A):
+     * The whitepaper specifies: H ≥ r · T
+     * Where: H = haircut, r = LP opportunity cost, T = escrow duration
+     * 
+     * LPs set minHaircut based on their opportunity cost (r) and expected delay (T).
+     * This ensures the clearing condition H ≥ r · T is satisfied for matched LPs.
+     * 
+     * Example: If LP has r = 5% annual (0.05) and T = 600s (0.000019 years),
+     *          then minHaircut should be ≥ 0.05 × 0.000019 ≈ 0.0001% (100 scaled)
+     *          In practice, LPs set higher minHaircut to account for risk and profit.
      */
     function depositLiquidity(
         address _asset,

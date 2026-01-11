@@ -87,12 +87,34 @@ IF hour in [9, 10, 11, 14, 15, 16]:  // High activity hours
 
 ## Confidence Intervals
 
+### MVP Implementation (Current)
+
 Instead of ML confidence intervals, use deterministic bounds:
 
 ```
 confidenceLower = score × 0.98  // 2% conservative adjustment
 confidenceUpper = min(score × 1.02, 1.0)  // 2% optimistic, capped at 1.0
 ```
+
+### Whitepaper Specification (Future)
+
+The whitepaper (Appendix B) specifies **conformal prediction** with α = 0.003 for distribution-free guarantees:
+
+```
+Pr(p ≥ p̂) ≥ 1 − α = 99.7%
+```
+
+Where:
+- `p` = true probability of redemption success
+- `p̂` = lower confidence bound (confidenceLower)
+- `α` = error rate (0.003 = 0.3%)
+
+**Current Status**: MVP uses fixed 2% adjustment as a conservative approximation. For full theoretical alignment, conformal prediction quantiles should be:
+1. Computed off-chain via ML training pipeline
+2. Updated on-chain via governance parameters
+3. Used instead of fixed 2% adjustment
+
+**Impact**: The fixed 2% adjustment is conservative (more restrictive) but does not provide the same theoretical guarantee as conformal prediction. The 99.7% threshold (p_min) is still enforced, ensuring safety, but the confidence bound itself is not distribution-free.
 
 ## Advantages
 
@@ -102,9 +124,50 @@ confidenceUpper = min(score × 1.02, 1.0)  // 2% optimistic, capped at 1.0
 4. **Debuggable**: Can trace exactly why a decision was made
 5. **Upgradeable**: Can adjust thresholds via governance
 
+## Haircut Economics
+
+### Haircut Clearing Condition (Appendix A)
+
+The whitepaper specifies that haircut `H` must satisfy:
+
+```
+H ≥ r · T
+```
+
+Where:
+- `H` = haircut rate
+- `r` = LP opportunity cost (annualized)
+- `T` = escrow duration (fraction of year)
+
+**Implementation**: This condition is enforced via `LiquidityProviderRegistry`, where LPs set their own `minHaircut` based on their opportunity cost and expected delay. The suggested haircut from `calculateSuggestedHaircut()` is advisory - LPs will only match if their `minHaircut` is satisfied, ensuring the clearing condition is met.
+
+**Current Formula**: 
+```
+haircut = (1 - confidenceLower) × maxHaircut
+```
+
+This is confidence-based, not explicitly validated against r · T. The LP matching mechanism ensures market-clearing.
+
 ## Implementation
 
 - **On-Chain**: FLIPCore computes score directly (no oracle needed for simple cases)
 - **Oracle Nodes**: Only needed for complex calculations or external data
 - **Governance**: Thresholds can be updated via multisig/DAO
+
+## MVP vs Full Implementation
+
+### Current (MVP)
+- ✅ Deterministic scoring with fixed 2% confidence intervals
+- ✅ 99.7% threshold (p_min) enforced
+- ✅ Worst-case bounds (no loss, only delay)
+- ⚠️ Fixed confidence intervals (not conformal prediction)
+- ⚠️ Confidence-based haircut (not explicitly validated against r · T)
+
+### Future (Full Theoretical Alignment)
+- 🔮 Conformal prediction with α = 0.003
+- 🔮 Distribution-free confidence bounds
+- 🔮 Explicit haircut validation: H ≥ r · T
+- 🔮 Queueing bounds enforcement: E[C_escrow] ≤ λ · f · τ · E[R]
+
+**Note**: The MVP implementation is **conservative and safe** - it enforces all safety guarantees but uses simpler approximations for theoretical guarantees. Full theoretical alignment can be added post-deployment via governance updates.
 

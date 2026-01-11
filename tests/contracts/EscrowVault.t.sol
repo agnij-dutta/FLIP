@@ -130,6 +130,9 @@ contract EscrowVaultTest is Test {
     }
     
     function testCreateEscrow_Unauthorized() public {
+        // Use a different address that's not owner or flipCore
+        address unauthorized = address(0x999);
+        vm.prank(unauthorized);
         vm.expectRevert("EscrowVault: not authorized");
         escrowVault.createEscrow(1, user, address(0), asset, 100 ether, false);
     }

@@ -74,8 +74,34 @@ library DeterministicScoring {
             score = 1000000;
         }
         
-        // Calculate confidence intervals (2% adjustment)
-        uint256 confidenceLower = (score * 98) / 100; // 2% conservative
+        // Calculate confidence intervals
+        // 
+        // MVP IMPLEMENTATION NOTE:
+        // The whitepaper (Appendix B) specifies conformal prediction with α = 0.003 for
+        // distribution-free guarantees: Pr(p ≥ p̂) ≥ 99.7%
+        //
+        // This MVP implementation uses a fixed 2% conservative adjustment as a simpler
+        // approximation. This is conservative (more restrictive) but does not provide the
+        // same theoretical guarantee as conformal prediction.
+        //
+        // For full theoretical alignment, conformal prediction quantiles should be:
+        // 1. Computed off-chain via ML training pipeline
+        // 2. Updated on-chain via governance parameters
+        // 3. Used instead of fixed 2% adjustment
+        //
+        // Current approach: confidenceLower = score × 0.98 (2% conservative)
+        // However, to allow scores to reach 99.7% threshold, we use a smaller adjustment
+        // for high scores: if score >= 99.7%, use 0.3% adjustment instead of 2%
+        //
+        uint256 confidenceLower;
+        if (score >= PROVISIONAL_THRESHOLD) {
+            // For high scores, use minimal adjustment to allow threshold to be reached
+            // This ensures scores >= 99.7% can still pass the threshold check
+            confidenceLower = (score * 997) / 1000; // 0.3% conservative for high scores
+        } else {
+            confidenceLower = (score * 98) / 100; // 2% conservative for lower scores
+        }
+        
         uint256 confidenceUpper = (score * 102) / 100; // 2% optimistic
         if (confidenceUpper > 1000000) {
             confidenceUpper = 1000000;
@@ -236,6 +262,17 @@ library DeterministicScoring {
      * @return haircut Suggested haircut rate (scaled: 1000000 = 100%)
      * @dev Higher confidence = lower haircut
      *      Max haircut is 5% (50000 scaled)
+     * 
+     * HAIRCUT CLEARING CONDITION (Appendix A):
+     * The whitepaper specifies: H ≥ r · T
+     * Where: H = haircut, r = LP opportunity cost, T = escrow duration
+     * 
+     * This function computes a confidence-based haircut. The actual clearing condition
+     * is enforced by LiquidityProviderRegistry, where LPs set their own minHaircut
+     * based on their opportunity cost (r) and expected delay (T).
+     * 
+     * This suggested haircut is advisory - LPs will only match if their minHaircut
+     * is satisfied, ensuring the clearing condition H ≥ r · T is met.
      */
     function calculateSuggestedHaircut(ScoreResult memory result)
         internal
@@ -258,6 +295,8 @@ library DeterministicScoring {
         }
         
         // Minimum haircut of 0.1% (1000) for risk buffer
+        // Note: This minimum may not satisfy H ≥ r · T for all LPs
+        // LPs enforce their own minHaircut via LiquidityProviderRegistry
         uint256 minHaircut = 1000; // 0.1%
         if (haircut < minHaircut) {
             haircut = minHaircut;

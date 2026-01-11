@@ -61,12 +61,15 @@ contract EscrowStressTest is Test {
         
         vm.prank(address(lpRegistry.owner()));
         lpRegistry.setFLIPCore(address(flipCore));
+        
+        vm.prank(address(settlementReceipt.owner()));
+        settlementReceipt.setFLIPCore(address(flipCore));
 
         // Deploy mock FAsset
         fAsset = new MockFAsset();
         
         // Setup operator
-        vm.deal(operator, 100000 ether);
+        vm.deal(operator, 200000 ether); // Give operator enough for stake
         vm.prank(operator);
         operatorRegistry.stake{value: 200000 ether}(200000 ether);
         

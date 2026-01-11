@@ -33,6 +33,7 @@ contract SettlementReceipt {
     
     EscrowVault public immutable escrowVault;
     address public owner;
+    address public flipCore; // FLIPCore contract address
     uint256 public nextTokenId;
     
     string public constant name = "FLIP Settlement Receipt";
@@ -62,7 +63,7 @@ contract SettlementReceipt {
     
     modifier onlyAuthorized() {
         require(
-            msg.sender == owner || msg.sender == address(escrowVault),
+            msg.sender == owner || msg.sender == address(escrowVault) || msg.sender == flipCore,
             "SettlementReceipt: not authorized"
         );
         _;
@@ -71,6 +72,16 @@ contract SettlementReceipt {
     constructor(address _escrowVault) {
         escrowVault = EscrowVault(_escrowVault);
         owner = msg.sender;
+    }
+    
+    /**
+     * @notice Set FLIPCore address (can only be set once)
+     * @param _flipCore FLIPCore contract address
+     */
+    function setFLIPCore(address _flipCore) external onlyOwner {
+        require(_flipCore != address(0), "SettlementReceipt: invalid address");
+        require(flipCore == address(0), "SettlementReceipt: already set");
+        flipCore = _flipCore;
     }
     
     /**
@@ -182,8 +193,8 @@ contract SettlementReceipt {
      */
     function updateFDCRoundId(uint256 _redemptionId, uint256 _fdcRoundId) external {
         require(
-            msg.sender == address(escrowVault),
-            "SettlementReceipt: only escrow vault"
+            msg.sender == address(escrowVault) || msg.sender == flipCore,
+            "SettlementReceipt: only escrow vault or FLIPCore"
         );
         
         uint256 tokenId = redemptionToTokenId[_redemptionId];

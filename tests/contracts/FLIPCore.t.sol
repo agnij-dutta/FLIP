@@ -49,12 +49,15 @@ contract FLIPCoreTest is Test {
             address(operatorRegistry)
         );
         
-        // Set FLIPCore in escrow vault and LP registry
+        // Set FLIPCore in escrow vault, LP registry, and settlement receipt
         vm.prank(address(escrowVault.owner()));
         escrowVault.setFLIPCore(address(flipCore));
         
         vm.prank(address(lpRegistry.owner()));
         lpRegistry.setFLIPCore(address(flipCore));
+        
+        vm.prank(address(settlementReceipt.owner()));
+        settlementReceipt.setFLIPCore(address(flipCore));
 
         // Deploy mock FAsset
         fAsset = new MockFAsset();

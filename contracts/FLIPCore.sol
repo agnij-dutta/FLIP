@@ -259,15 +259,14 @@ contract FLIPCore {
             suggestedHaircut
         );
         
-        bool lpFunded = (matchedLP != address(0) && availableAmount >= redemption.amount);
-        address lpAddress = lpFunded ? matchedLP : address(0);
-        
-        // If LP matched, use LP's minHaircut; otherwise use suggested haircut
-        uint256 finalHaircut = suggestedHaircut;
-        if (lpFunded) {
-            LiquidityProviderRegistry.LPPosition memory lpPos = lpRegistry.getPosition(matchedLP, redemption.asset);
-            finalHaircut = lpPos.minHaircut;
-        }
+        // Determine if LP funding is available and get final haircut
+        (bool lpFunded, address lpAddress, uint256 finalHaircut) = _determineLiquidityAndHaircut(
+            matchedLP,
+            availableAmount,
+            redemption.amount,
+            redemption.asset,
+            suggestedHaircut
+        );
         
         // Create escrow (LP-funded or user-wait path)
         escrowVault.createEscrow(
@@ -326,8 +325,7 @@ contract FLIPCore {
         escrowVault.releaseOnFDC(_redemptionId, _success, _requestId);
         
         // Update receipt FDC round ID (if receipt exists)
-        // Note: redemptionToTokenId is a public mapping, accessed via getter
-        // For now, we'll update it if escrow was created (receipt exists)
+        // FLIPCore is authorized to call this
         if (redemption.status == RedemptionStatus.EscrowCreated) {
             settlementReceipt.updateFDCRoundId(_redemptionId, _requestId);
         }
@@ -470,6 +468,31 @@ contract FLIPCore {
         // In production, this would be a mapping or registry lookup
         // For now, return placeholder - will be configured per deployment
         return "XRP/USD"; // Default, should be configurable
+    }
+
+    /**
+     * @notice Determine liquidity funding and final haircut
+     * @dev Helper function to reduce stack depth in finalizeProvisional
+     * @return lpFunded Whether LP funding is available
+     * @return lpAddress LP address (address(0) if not funded)
+     * @return finalHaircut Final haircut to use (LP's minHaircut or suggested)
+     */
+    function _determineLiquidityAndHaircut(
+        address matchedLP,
+        uint256 availableAmount,
+        uint256 requiredAmount,
+        address asset,
+        uint256 suggestedHaircut
+    ) internal view returns (bool lpFunded, address lpAddress, uint256 finalHaircut) {
+        lpFunded = (matchedLP != address(0) && availableAmount >= requiredAmount);
+        lpAddress = lpFunded ? matchedLP : address(0);
+        
+        // If LP matched, use LP's minHaircut; otherwise use suggested haircut
+        finalHaircut = suggestedHaircut;
+        if (lpFunded) {
+            LiquidityProviderRegistry.LPPosition memory lpPos = lpRegistry.getPosition(matchedLP, asset);
+            finalHaircut = lpPos.minHaircut;
+        }
     }
 }
 
