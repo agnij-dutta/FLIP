@@ -18,9 +18,10 @@ interface IStateConnector {
 
     /**
      * @notice Get the current State Connector round ID
-     * @return _roundId Current round ID
+     * @return Current round ID
+     * @dev Matches Flare's State Connector: getCurrentRound()
      */
-    function getStateConnectorRound() external view returns (uint256 _roundId);
+    function getCurrentRound() external view returns (uint256);
 
     /**
      * @notice Get attestation data for a specific round

@@ -8,7 +8,7 @@ contract MockStateConnector is IStateConnector {
     mapping(uint256 => bytes32) public merkleRoots;
     mapping(uint256 => uint256) public roundTimestamps;
 
-    function getStateConnectorRound() external view override returns (uint256 _roundId) {
+    function getCurrentRound() external view override returns (uint256) {
         return currentRound;
     }
 

@@ -12,9 +12,10 @@ Our contracts use simplified interfaces that don't exactly match Flare's actual 
    - **Action Needed**: Update `PriceHedgePool` to use FTSOv2 interface directly
 
 2. **IStateConnector**:
-   - Our interface: Simplified with `getStateConnectorRound()` and `getAttestation()`
-   - Actual FDC: Uses `IFdcVerification.verifyEVMTransaction(Proof)` for verification
-   - **Action Needed**: Update `FLIPCore` to use FDC verification interface
+   - ✅ **UPDATED**: Now uses `getCurrentRound()` (matches Flare's State Connector)
+   - ✅ Interface aligned with Flare's actual State Connector contract
+   - Note: FLIPCore doesn't call stateConnector methods directly (attestations come via `handleFDCAttestation`)
+   - For verification: Use `IFdcVerification.verifyEVMTransaction(Proof)` (separate interface)
 
 ### Recommended Approach
 
