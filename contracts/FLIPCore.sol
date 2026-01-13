@@ -10,6 +10,7 @@ import "./LiquidityProviderRegistry.sol";
 import "./PriceHedgePool.sol";
 import "./OperatorRegistry.sol";
 import "./DeterministicScoring.sol";
+import "./Pausable.sol";
 
 /**
  * @title FLIPCore
@@ -17,7 +18,7 @@ import "./DeterministicScoring.sol";
  * @dev Coordinates redemption flow: user request → FTSO price lock → Oracle prediction → 
  *      Provisional settlement → FDC finalization
  */
-contract FLIPCore {
+contract FLIPCore is Pausable {
     // Dependencies
     IFtsoRegistry public immutable ftsoRegistry;
     IStateConnector public immutable stateConnector;
@@ -119,6 +120,7 @@ contract FLIPCore {
         lpRegistry = LiquidityProviderRegistry(_lpRegistry);
         priceHedgePool = PriceHedgePool(_priceHedgePool);
         operatorRegistry = OperatorRegistry(_operatorRegistry);
+        // Pausable owner is set to deployer (msg.sender) in Pausable constructor
     }
 
     /**
@@ -129,6 +131,7 @@ contract FLIPCore {
      */
     function requestRedemption(uint256 _amount, address _asset)
         external
+        whenNotPaused
         returns (uint256 redemptionId)
     {
         require(_amount > 0, "FLIPCore: amount must be > 0");
