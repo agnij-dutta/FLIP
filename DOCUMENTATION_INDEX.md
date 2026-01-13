@@ -16,12 +16,15 @@ This index provides quick access to all FLIP v2 documentation, organized by topi
 
 ### Mathematical Model
 - **`docs/MATHEMATICAL_MODEL.md`** - Deterministic scoring model
+- **`docs/MATHEMATICAL_PROOFS.md`** - Complete mathematical proofs (H ≥ r·T, worst-case scenarios)
+- **`docs/WORST_CASE_SCENARIOS.md`** - Complete worst-case scenario analysis
 - **`docs/MVP_IMPLEMENTATION_NOTES.md`** - MVP vs full implementation differences
-- **`docs/WHITEPAPER_MVP_ALIGNMENT.md`** - Quick reference for alignment
 
 ### Implementation Status
-- **`PROJECT_STATUS.md`** - Overall project completion status
+- **`PROJECT_STATUS.md`** - Overall project completion status (consolidated)
 - **`WHITEPAPER_ALIGNMENT.md`** - Mathematical guarantees alignment
+- **`TEST_RESULTS.md`** - Test results summary (consolidated)
+- **`COSTON2_DEPLOYED_ADDRESSES.md`** - Deployment addresses (consolidated)
 
 ---
 
@@ -92,9 +95,10 @@ This index provides quick access to all FLIP v2 documentation, organized by topi
 3. `docs/MATHEMATICAL_MODEL.md` - Understand scoring
 
 ### For Implementers
-1. `PROJECT_STATUS.md` - What's complete
+1. `PROJECT_STATUS.md` - What's complete (consolidated status)
 2. `docs/MVP_IMPLEMENTATION_NOTES.md` - MVP vs full spec
 3. `WHITEPAPER_ALIGNMENT.md` - Mathematical alignment
+4. `TEST_RESULTS.md` - Test results and coverage
 
 ### For LPs
 1. `docs/LIQUIDITY_PROVIDER_GUIDE.md` - Complete LP guide
