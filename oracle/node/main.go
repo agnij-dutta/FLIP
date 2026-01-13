@@ -127,24 +127,33 @@ func (on *OracleNode) handleRedemptionRequested(logEntry types.Log) {
 		return
 	}
 
-	// Run ML prediction
-	prediction, err := on.predictor.Predict(features)
-	if err != nil {
-		log.Printf("Error running prediction: %v", err)
-		return
-	}
-
+	// Use deterministic scoring (not ML)
+	scorer := NewDeterministicScorer()
+	
+	// Calculate score using deterministic scoring
+	scoreResult := scorer.CalculateScore(scoringParams)
+	
 	// Submit prediction if confidence is high enough
-	if prediction.ConfidenceLower >= 997000 { // 0.997 = 997000/1000000
-		err = on.relay.SubmitPrediction(redemptionId, prediction)
+	if scoreResult.CanProvisionalSettle {
+		// Calculate suggested haircut
+		suggestedHaircut := calculateSuggestedHaircut(scoreResult)
+		
+		// Submit to OracleRelay (advisory prediction)
+		err = on.relay.SubmitPrediction(
+			redemptionId,
+			scoreResult.Score,
+			suggestedHaircut,
+			scoreResult.Decision,
+		)
 		if err != nil {
 			log.Printf("Error submitting prediction: %v", err)
 		} else {
-			log.Printf("Submitted prediction for redemption %s: prob=%.4f, conf=[%.4f, %.4f]",
+			log.Printf("Submitted prediction for redemption %s: score=%d, conf=[%d, %d], decision=%d",
 				redemptionId.String(),
-				float64(prediction.Probability)/1000000.0,
-				float64(prediction.ConfidenceLower)/1000000.0,
-				float64(prediction.ConfidenceUpper)/1000000.0,
+				scoreResult.Score.Uint64(),
+				scoreResult.ConfidenceLower.Uint64(),
+				scoreResult.ConfidenceUpper.Uint64(),
+				scoreResult.Decision,
 			)
 		}
 	}

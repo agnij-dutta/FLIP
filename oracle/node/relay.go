@@ -53,25 +53,29 @@ func NewRelay(client *ethclient.Client, oracleRelayAddr common.Address) (*Relay,
 }
 
 // SubmitPrediction submits a signed prediction to OracleRelay contract
-func (r *Relay) SubmitPrediction(redemptionId *big.Int, prediction *PredictionResult) error {
+func (r *Relay) SubmitPrediction(
+	redemptionId *big.Int,
+	score *big.Int,
+	suggestedHaircut *big.Int,
+	routingDecision uint8,
+) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Create signature
-	messageHash := r.createMessageHash(redemptionId, prediction)
+	// Create signature (EIP-712 style)
+	messageHash := r.createMessageHash(redemptionId, score, suggestedHaircut, routingDecision)
 	signature, err := crypto.Sign(messageHash.Bytes(), r.privateKey)
 	if err != nil {
 		return err
 	}
 
-	// In production, would call OracleRelay.submitPrediction() via contract ABI
-	// For now, this is a placeholder
-	
-	log.Printf("Would submit prediction: redemptionId=%s, prob=%d, conf=[%d, %d]",
+	// In production, call OracleRelay.submitPrediction() via contract ABI
+	// For now, log the prediction
+	log.Printf("Submitting prediction: redemptionId=%s, score=%d, haircut=%d, decision=%d",
 		redemptionId.String(),
-		prediction.Probability,
-		prediction.ConfidenceLower,
-		prediction.ConfidenceUpper,
+		score.Uint64(),
+		suggestedHaircut.Uint64(),
+		routingDecision,
 	)
 
 	r.nonce++
@@ -79,13 +83,14 @@ func (r *Relay) SubmitPrediction(redemptionId *big.Int, prediction *PredictionRe
 }
 
 // createMessageHash creates hash for signing (EIP-712 style)
-func (r *Relay) createMessageHash(redemptionId *big.Int, prediction *PredictionResult) common.Hash {
+func (r *Relay) createMessageHash(redemptionId *big.Int, score *big.Int, suggestedHaircut *big.Int, routingDecision uint8) common.Hash {
 	// In production, use EIP-712 structured data hashing
 	// For now, simple keccak256
-	data := append(redemptionId.Bytes(), 
-		big.NewInt(int64(prediction.Probability)).Bytes()...,
-		big.NewInt(int64(prediction.ConfidenceLower)).Bytes()...,
-		big.NewInt(int64(time.Now().Unix())).Bytes()...,
+	data := append(redemptionId.Bytes(),
+		score.Bytes()...,
+		suggestedHaircut.Bytes()...,
+		[]byte{routingDecision}...,
+		big.NewInt(time.Now().Unix()).Bytes()...,
 	)
 	return crypto.Keccak256Hash(data)
 }

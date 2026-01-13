@@ -9,6 +9,7 @@ import {OperatorRegistry} from "../contracts/OperatorRegistry.sol";
 import {FtsoV2Adapter} from "../contracts/FtsoV2Adapter.sol";
 import {PriceHedgePool} from "../contracts/PriceHedgePool.sol";
 import {FLIPCore} from "../contracts/FLIPCore.sol";
+import {OracleRelay} from "../contracts/OracleRelay.sol";
 
 contract Deploy is Script {
     // Coston2 addresses
@@ -70,7 +71,12 @@ contract Deploy is Script {
         PriceHedgePool priceHedgePool = new PriceHedgePool(address(ftsoAdapter));
         console.log("PriceHedgePool deployed to:", address(priceHedgePool));
         
-        // 7. Deploy FLIPCore
+        // 7. Deploy OracleRelay
+        console.log("Deploying OracleRelay...");
+        OracleRelay oracleRelay = new OracleRelay();
+        console.log("OracleRelay deployed to:", address(oracleRelay));
+        
+        // 8. Deploy FLIPCore
         console.log("Deploying FLIPCore...");
         FLIPCore flipCore = new FLIPCore(
             address(ftsoAdapter),
@@ -83,7 +89,7 @@ contract Deploy is Script {
         );
         console.log("FLIPCore deployed to:", address(flipCore));
         
-        // 8. Configure contracts
+        // 9. Configure contracts
         console.log("Configuring contracts...");
         escrowVault.setFLIPCore(address(flipCore));
         lpRegistry.setFLIPCore(address(flipCore));
@@ -100,6 +106,7 @@ contract Deploy is Script {
         console.log("OperatorRegistry:", address(operatorRegistry));
         console.log("FtsoV2Adapter:", address(ftsoAdapter));
         console.log("PriceHedgePool:", address(priceHedgePool));
+        console.log("OracleRelay:", address(oracleRelay));
         console.log("FLIPCore:", address(flipCore));
     }
 }
