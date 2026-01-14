@@ -13,18 +13,18 @@ Frontend demo application for the FLIP (Flare Liquidation Insurance Protocol).
 
 1. Install dependencies:
 ```bash
-npm install
+pnpm install
 ```
 
-2. Update contract addresses in `app/page.tsx`:
-   - `FLIP_CORE_ADDRESS`: Deployed FLIPCore contract address
-   - `FASSET_ADDRESS`: FAsset contract address (e.g., FXRP)
+2. Update contract addresses in `lib/contracts.ts`:
+   - All Coston2 addresses are already configured
+   - Update FAsset address in redeem page if needed
 
-3. Add full contract ABIs to `app/page.tsx` (currently using simplified ABI snippets)
+3. Add full contract ABIs to `lib/contracts.ts` (currently using simplified ABI snippets)
 
 4. Run development server:
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 5. Open [http://localhost:3000](http://localhost:3000)

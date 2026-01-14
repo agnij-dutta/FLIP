@@ -32,6 +32,19 @@ coverage.json
 typechain-types/
 .openzeppelin/
 
+# Frontend
+frontend/node_modules/
+frontend/package-lock.json
+# pnpm-lock.yaml should be committed
+frontend/.cache/
+frontend/artifacts/
+frontend/cache/
+frontend/coverage/
+frontend/coverage.json
+frontend/typechain-types/
+frontend/.openzeppelin/
+frontend/.next/
+
 # Foundry
 out/
 broadcast/
