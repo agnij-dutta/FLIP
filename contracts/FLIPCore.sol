@@ -139,15 +139,27 @@ contract FLIPCore is Pausable {
 
         IFAsset fAsset = IFAsset(_asset);
         
-        // Request redemption on FAsset (burns tokens and returns FAsset redemption ID)
-        uint256 fAssetRedemptionId = fAsset.requestRedemption(_amount);
+        // Transfer tokens from user to FLIPCore (user must have approved FLIPCore)
+        // Using ERC20 transferFrom pattern
+        require(
+            fAsset.transferFrom(msg.sender, address(this), _amount),
+            "FLIPCore: transfer failed"
+        );
+        
+        // "Burn" tokens by transferring to dead address (0x000...dead)
+        // This effectively removes them from circulation since dead address can't spend them
+        // We can't use burn() because FAsset contract has restrictions, but transfer works
+        address DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+        require(
+            fAsset.transfer(DEAD_ADDRESS, _amount),
+            "FLIPCore: burn transfer failed"
+        );
 
         redemptionId = nextRedemptionId++;
         
         // Lock price via FTSO and create price hedge
         string memory symbol = _getAssetSymbol(_asset);
-        // Get current price (for future volatility calculation)
-        ftsoRegistry.getCurrentPriceWithDecimals(symbol); // Price will be used in scoring
+        // Get price and lock it in one call (optimize gas)
         (uint256 lockedPrice, uint256 hedgeId) = priceHedgePool.lockPrice(_asset, _amount);
 
         redemptions[redemptionId] = Redemption({

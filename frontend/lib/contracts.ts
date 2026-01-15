@@ -1,14 +1,16 @@
 // FLIP v2 Contract Addresses (Coston2 Testnet)
 export const CONTRACTS = {
   coston2: {
-    FLIPCore: '0xcBc8eB46172c2caD5b4961E8c4F5f827e618a387',
-    EscrowVault: '0x0E37cc3Dc8Fa1675f2748b77dddfF452b63DD4CC',
-    SettlementReceipt: '0x0Ff7d4E7aF64059426F76d2236155ef1655C99D8',
-    LiquidityProviderRegistry: '0x2CC077f1Da27e7e08A1832804B03b30A2990a61C',
-    OperatorRegistry: '0x21b165aE60748410793e4c2ef248940dc31FE773',
-    PriceHedgePool: '0xb9Df841a5b5f4a7f23F2294f3eecB5b2e2F53CFD',
-    OracleRelay: '0x5Fd855d2592feba675E5E8284c830fE1Cefb014E',
-    FtsoV2Adapter: '0x4D1E494CaB138D8c23B18c975b49C1Bec7902746',
+    FLIPCore: '0x1151473d15F012d0Dd54f8e707dB6708BD25981F',
+    EscrowVault: '0x96f78a441cd5F495BdE362685B200c285e445073',
+    SettlementReceipt: '0x17A223eB9D0d74265da99Ccbb994B6Ea75E4Ecb7',
+    LiquidityProviderRegistry: '0x3A6aEa499Df3e330E9BBFfeF9Fe5393FA6227E36',
+    OperatorRegistry: '0x98E12876aB1b38f1B6ac6ceA745f8BA703Ff2DEB',
+    PriceHedgePool: '0xb8d9efA7348b7E89d308F8f6284Fbc14D2C4d3Ef',
+    OracleRelay: '0xa9feC29134294e5Cb18e8125F700a1d8C354891f',
+    FtsoV2Adapter: '0x05108Aa7A166B1f9A32B9bbCb0D335cd1441Ad67',
+    // FAssets (Coston2 Testnet)
+    FXRP: '0x0b6A3645c240605887a5532109323A3E12273dc7', // FXRP Token from Asset Manager
   },
   networks: {
     coston2: {
@@ -39,9 +41,12 @@ export const FLIP_CORE_ABI = [
       { name: 'user', type: 'address' },
       { name: 'asset', type: 'address' },
       { name: 'amount', type: 'uint256' },
+      { name: 'requestedAt', type: 'uint256' },
+      { name: 'priceLocked', type: 'uint256' },
+      { name: 'hedgeId', type: 'uint256' },
       { name: 'status', type: 'uint8' },
-      { name: 'receiptId', type: 'uint256' },
-      { name: 'timestamp', type: 'uint256' },
+      { name: 'fdcRequestId', type: 'uint256' },
+      { name: 'provisionalSettled', type: 'bool' },
     ],
     stateMutability: 'view',
     type: 'function',

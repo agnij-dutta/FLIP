@@ -8,6 +8,11 @@ pragma solidity ^0.8.24;
  *      Redemptions require agent processing and FDC attestation
  */
 interface IFAsset {
+    // ERC20 functions (FAssets are ERC20 tokens)
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+    function allowance(address owner, address spender) external view returns (uint256);
     /**
      * @notice Request redemption of FAsset tokens
      * @param _amount Amount of FAsset to redeem
