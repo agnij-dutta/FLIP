@@ -1,0 +1,36 @@
+# FLIP Agent Configuration
+
+# Flare Network Configuration
+flare:
+  rpc_url: "https://coston2-api.flare.network/ext/C/rpc"
+  chain_id: 114
+  flip_core_address: "0x1151473d15F012d0Dd54f8e707dB6708BD25981F"
+  escrow_vault_address: "0x96f78a441cd5F495BdE362685B200c285e445073"
+
+# XRPL Configuration
+xrpl:
+  testnet_ws: "wss://s.altnet.rippletest.net:51233"
+  testnet_rpc: "https://s.altnet.rippletest.net:51233"
+  # Agent XRPL wallet seed (for testnet)
+  # WARNING: Never commit real seeds to git
+  wallet_seed: "sYOUR_WALLET_SEED_HERE"
+
+# FDC Configuration
+fdc:
+  verifier_url: "https://verifier-coston2.flare.network"
+  da_layer_url: "https://coston2-api.flare.network/api/v0/fdc"
+  api_key: "" # Optional API key for FDC verifier
+
+# Agent Settings
+agent:
+  # Polling interval for EscrowCreated events (seconds)
+  polling_interval: 10
+  # Maximum retries for XRPL payment
+  max_payment_retries: 3
+  # Delay between payment retries (seconds)
+  payment_retry_delay: 5
+  # FDC proof fetch timeout (seconds)
+  fdc_timeout: 300
+  # Minimum XRP balance to maintain (drops)
+  min_xrp_balance: 10000000 # 10 XRP
+

@@ -81,7 +81,7 @@ contract FullFlowTest is Test {
         // 1. User requests redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         assertEq(
@@ -144,7 +144,7 @@ contract FullFlowTest is Test {
         // 1. Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // 2. Finalize provisional (high confidence)
@@ -180,7 +180,7 @@ contract FullFlowTest is Test {
         // 1. Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // 2. Evaluate (low confidence)
@@ -230,7 +230,7 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         // Finalize provisional
@@ -267,7 +267,7 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         // Finalize provisional (no LP, user-wait path)
@@ -319,7 +319,7 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, 100 ether);
-        uint256 redemptionId = flipCore.requestRedemption(100 ether, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(100 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         // Finalize provisional (should match LP)
@@ -341,7 +341,7 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         // Finalize provisional
@@ -373,7 +373,7 @@ contract FullFlowTest is Test {
         // Redemption 1: High confidence
         vm.startPrank(user);
         fAsset.mint(user, 100 ether);
-        uint256 redemptionId1 = flipCore.requestRedemption(100 ether, address(fAsset));
+        uint256 redemptionId1 = flipCore.requestRedemption(100 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         (uint8 decision1, ) = flipCore.evaluateRedemption(
@@ -387,7 +387,7 @@ contract FullFlowTest is Test {
         // Redemption 2: Medium confidence
         vm.startPrank(user);
         fAsset.mint(user, 5000 ether);
-        uint256 redemptionId2 = flipCore.requestRedemption(5000 ether, address(fAsset));
+        uint256 redemptionId2 = flipCore.requestRedemption(5000 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         (uint8 decision2, uint256 score2) = flipCore.evaluateRedemption(
@@ -403,7 +403,7 @@ contract FullFlowTest is Test {
         // Redemption 3: Low confidence
         vm.startPrank(user);
         fAsset.mint(user, 100000 ether);
-        uint256 redemptionId3 = flipCore.requestRedemption(100000 ether, address(fAsset));
+        uint256 redemptionId3 = flipCore.requestRedemption(100000 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         (uint8 decision3, ) = flipCore.evaluateRedemption(

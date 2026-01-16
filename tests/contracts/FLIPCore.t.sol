@@ -80,7 +80,7 @@ contract FLIPCoreTest is Test {
         // User must approve or have balance
         vm.startPrank(user);
         fAsset.mint(user, amount); // Ensure user has tokens
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         assertEq(redemptionId, 0, "First redemption should be ID 0");
@@ -96,7 +96,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Calculate score parameters (high confidence scenario)
@@ -129,7 +129,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Test evaluation with high confidence parameters
@@ -154,7 +154,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Test evaluation with low confidence parameters
@@ -179,7 +179,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Low confidence parameters
@@ -203,7 +203,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Finalize provisional with high confidence parameters
@@ -231,7 +231,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Finalize provisional
@@ -254,7 +254,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Finalize provisional

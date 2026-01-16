@@ -78,6 +78,11 @@ contract EscrowVault {
     }
     
     /**
+     * @notice Receive function to accept native token (FLR) transfers
+     */
+    receive() external payable {}
+    
+    /**
      * @notice Set FLIPCore address (owner only, one-time setup)
      * @param _flipCore FLIPCore contract address
      */
@@ -103,11 +108,23 @@ contract EscrowVault {
         address _asset,
         uint256 _amount,
         bool _lpFunded
-    ) external onlyAuthorized {
+    ) external payable onlyAuthorized {
         require(_amount > 0, "EscrowVault: invalid amount");
         require(_user != address(0), "EscrowVault: invalid user");
         require(escrows[_redemptionId].status == EscrowStatus.None, "EscrowVault: escrow exists");
+        
+        // For LP-funded escrows, funds are already transferred by LiquidityProviderRegistry.matchLiquidity()
+        // For user-wait escrows, user may send FLR (optional - they can wait without escrow)
+        // If msg.value > 0, it must match _amount
+        if (msg.value > 0) {
+            require(msg.value == _amount, "EscrowVault: amount mismatch");
+        } else if (_lpFunded) {
+            // LP-funded: funds should already be in contract from matchLiquidity
+            require(address(this).balance >= _amount, "EscrowVault: insufficient contract balance");
+        }
+        // For user-wait path without funds, escrow is just a record (user waits for FDC)
 
+        // Hold the funds in this contract
         escrows[_redemptionId] = Escrow({
             redemptionId: _redemptionId,
             user: _user,
@@ -146,14 +163,20 @@ contract EscrowVault {
             escrow.status = EscrowStatus.Released;
             // Release to LP if LP-funded, otherwise to user
             address recipient = escrow.lpFunded ? escrow.lp : escrow.user;
+            // Actually transfer funds
+            payable(recipient).transfer(escrow.amount);
             emit EscrowReleased(_redemptionId, recipient, escrow.amount);
         } else {
             escrow.status = EscrowStatus.Failed;
             // On failure: if LP-funded, LP loses funds; if user-wait, user gets refund
             address recipient = escrow.lpFunded ? address(0) : escrow.user;
             if (!escrow.lpFunded) {
+                // User gets refund on failure
+                payable(recipient).transfer(escrow.amount);
                 emit EscrowReleased(_redemptionId, recipient, escrow.amount);
             } else {
+                // LP loses funds on failure (penalty for incorrect assessment)
+                // Funds stay in contract (can be used for protocol fees or returned via governance)
                 emit EscrowFailed(_redemptionId, escrow.lp, escrow.amount);
             }
         }
@@ -176,10 +199,35 @@ contract EscrowVault {
 
         escrow.status = EscrowStatus.Timeout;
         
-        // On timeout: if LP-funded, LP gets funds back; if user-wait, user waits longer
-        // In production, this might trigger Firelight or other resolution
+        // On timeout: if LP-funded, LP gets funds back; if user-wait, user gets refund
         address recipient = escrow.lpFunded ? escrow.lp : escrow.user;
+        // Actually transfer funds
+        payable(recipient).transfer(escrow.amount);
         emit EscrowTimeout(_redemptionId, recipient, escrow.amount);
+    }
+    
+    /**
+     * @notice Payout receipt (called by SettlementReceipt for immediate redemption)
+     * @param _redemptionId Redemption ID
+     * @param _recipient Recipient address
+     * @param _amount Amount to payout
+     */
+    function payoutReceipt(
+        uint256 _redemptionId,
+        address _recipient,
+        uint256 _amount
+    ) external onlyAuthorized {
+        Escrow storage escrow = escrows[_redemptionId];
+        require(escrow.status == EscrowStatus.Created, "EscrowVault: invalid status");
+        require(_amount <= escrow.amount, "EscrowVault: insufficient escrow");
+        
+        // Transfer funds to recipient
+        payable(_recipient).transfer(_amount);
+        
+        // Update escrow amount (remaining stays in escrow for FDC finalization)
+        escrow.amount -= _amount;
+        
+        emit EscrowReleased(_redemptionId, _recipient, _amount);
     }
 
     /**

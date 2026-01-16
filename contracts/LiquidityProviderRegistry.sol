@@ -24,9 +24,12 @@ contract LiquidityProviderRegistry {
     mapping(address => address[]) public activeLPs;
     // LP address => asset => index in activeLPs array
     mapping(address => mapping(address => uint256)) public lpIndex;
+    // LP balances: (lp, asset) => balance (actual funds stored)
+    mapping(address => mapping(address => uint256)) public lpBalances;
     
     address public owner;
     address public flipCore; // FLIPCore contract address
+    address public escrowVault; // EscrowVault contract address
     
     event LiquidityDeposited(
         address indexed lp,
@@ -84,6 +87,16 @@ contract LiquidityProviderRegistry {
     }
     
     /**
+     * @notice Set EscrowVault address (owner only, one-time setup)
+     * @param _escrowVault EscrowVault contract address
+     */
+    function setEscrowVault(address _escrowVault) external onlyOwner {
+        require(_escrowVault != address(0), "LiquidityProviderRegistry: invalid address");
+        require(escrowVault == address(0), "LiquidityProviderRegistry: already set");
+        escrowVault = _escrowVault;
+    }
+    
+    /**
      * @notice Deposit liquidity as LP
      * @param _asset Asset to provide liquidity for
      * @param _amount Amount to deposit
@@ -109,9 +122,12 @@ contract LiquidityProviderRegistry {
     ) external payable {
         require(_asset != address(0), "LiquidityProviderRegistry: invalid asset");
         require(_amount > 0, "LiquidityProviderRegistry: invalid amount");
-        require(msg.value >= _amount, "LiquidityProviderRegistry: insufficient payment");
+        require(msg.value == _amount, "LiquidityProviderRegistry: amount mismatch");
         require(_minHaircut <= 1000000, "LiquidityProviderRegistry: invalid haircut");
         require(_maxDelay > 0, "LiquidityProviderRegistry: invalid delay");
+        
+        // Store the funds
+        lpBalances[msg.sender][_asset] += _amount;
         
         LPPosition storage position = positions[msg.sender][_asset];
         
@@ -143,7 +159,10 @@ contract LiquidityProviderRegistry {
         LPPosition storage position = positions[msg.sender][_asset];
         require(position.active, "LiquidityProviderRegistry: no position");
         require(position.availableAmount >= _amount, "LiquidityProviderRegistry: insufficient available");
+        require(lpBalances[msg.sender][_asset] >= _amount, "LiquidityProviderRegistry: insufficient balance");
         
+        // Update balances
+        lpBalances[msg.sender][_asset] -= _amount;
         position.availableAmount -= _amount;
         position.depositedAmount -= _amount;
         
@@ -153,8 +172,8 @@ contract LiquidityProviderRegistry {
             _removeLP(_asset, msg.sender);
         }
         
-        // In production, transfer funds back to LP
-        // For now, emit event - actual transfer handled by EscrowVault/FLIPCore
+        // Transfer funds back to LP
+        payable(msg.sender).transfer(_amount);
         
         emit LiquidityWithdrawn(msg.sender, _asset, _amount);
     }
@@ -197,7 +216,16 @@ contract LiquidityProviderRegistry {
         
         if (bestLP != address(0)) {
             LPPosition storage matchedPos = positions[bestLP][_asset];
+            require(lpBalances[bestLP][_asset] >= _amount, "LiquidityProviderRegistry: insufficient LP balance");
+            require(matchedPos.availableAmount >= _amount, "LiquidityProviderRegistry: insufficient available");
+            
+            // Update balances
+            lpBalances[bestLP][_asset] -= _amount;
             matchedPos.availableAmount -= _amount;
+            
+            // Transfer funds to EscrowVault
+            require(escrowVault != address(0), "LiquidityProviderRegistry: escrow vault not set");
+            payable(escrowVault).transfer(_amount);
             
             emit LiquidityMatched(bestLP, _asset, _amount, bestHaircut);
             return (bestLP, _amount);

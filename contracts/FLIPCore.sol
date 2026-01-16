@@ -39,6 +39,7 @@ contract FLIPCore is Pausable {
         RedemptionStatus status;
         uint256 fdcRequestId; // For matching FDC attestations
         bool provisionalSettled;
+        string xrplAddress; // XRPL address where user wants to receive XRP
     }
 
     enum RedemptionStatus {
@@ -60,6 +61,7 @@ contract FLIPCore is Pausable {
         address indexed user,
         address indexed asset,
         uint256 amount,
+        string xrplAddress,
         uint256 timestamp
     );
 
@@ -115,7 +117,7 @@ contract FLIPCore is Pausable {
     ) {
         ftsoRegistry = IFtsoRegistry(_ftsoRegistry);
         stateConnector = IStateConnector(_stateConnector);
-        escrowVault = EscrowVault(_escrowVault);
+        escrowVault = EscrowVault(payable(_escrowVault));
         settlementReceipt = SettlementReceipt(_settlementReceipt);
         lpRegistry = LiquidityProviderRegistry(_lpRegistry);
         priceHedgePool = PriceHedgePool(_priceHedgePool);
@@ -127,9 +129,10 @@ contract FLIPCore is Pausable {
      * @notice Request redemption of FAsset tokens
      * @param _amount Amount of FAsset to redeem
      * @param _asset FAsset contract address
+     * @param _xrplAddress XRPL address where user wants to receive XRP
      * @return redemptionId Unique redemption ID
      */
-    function requestRedemption(uint256 _amount, address _asset)
+    function requestRedemption(uint256 _amount, address _asset, string memory _xrplAddress)
         external
         whenNotPaused
         returns (uint256 redemptionId)
@@ -171,10 +174,11 @@ contract FLIPCore is Pausable {
             hedgeId: hedgeId,
             status: RedemptionStatus.Pending,
             fdcRequestId: 0, // Will be set when FDC attestation arrives
-            provisionalSettled: false
+            provisionalSettled: false,
+            xrplAddress: _xrplAddress
         });
 
-        emit RedemptionRequested(redemptionId, msg.sender, _asset, _amount, block.timestamp);
+        emit RedemptionRequested(redemptionId, msg.sender, _asset, _amount, _xrplAddress, block.timestamp);
         
         return redemptionId;
     }
@@ -284,7 +288,9 @@ contract FLIPCore is Pausable {
         );
         
         // Create escrow (LP-funded or user-wait path)
-        escrowVault.createEscrow(
+        // For LP-funded escrows, funds are already transferred by matchLiquidity
+        // For user-wait escrows, no funds needed (just a record)
+        escrowVault.createEscrow{value: 0}(
             _redemptionId,
             redemption.user,
             lpAddress,

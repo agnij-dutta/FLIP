@@ -171,3 +171,141 @@ This is confidence-based, not explicitly validated against r · T. The LP matchi
 
 **Note**: The MVP implementation is **conservative and safe** - it enforces all safety guarantees but uses simpler approximations for theoretical guarantees. Full theoretical alignment can be added post-deployment via governance updates.
 
+---
+
+## Agent Model (New Addition)
+
+### Agent Role
+
+The Settlement Executor (Agent) facilitates cross-chain payments:
+
+```
+Agent Flow:
+1. Monitor EscrowCreated events
+2. Send XRP payment P_A(R) to user's XRPL address
+3. Include payment reference ref(R) in XRPL memo
+4. Submit FDC proof of payment
+5. FLIPCore finalizes based on FDC confirmation
+```
+
+### Agent Constraints
+
+**Mathematical Constraint**:
+```
+∀ redemption R: Finalize(R) ⟹ FDC(P_A(R)) = true
+```
+
+**Trust Model**:
+```
+Trust(Agent) = 0
+All trust is in FDC, not agent.
+```
+
+### Agent Failure Mode
+
+**If agent fails to pay**:
+- User can prove non-payment via FDC
+- User receives compensation from escrow
+- Agent loses reputation
+- **No user loss** (worst-case is delay)
+
+**Mathematical Guarantee**:
+```
+Pr[User Loss | Agent Failure] = 0
+Pr[User Delay | Agent Failure] ≤ τ
+```
+
+---
+
+## Cross-Chain Settlement Model (New Addition)
+
+### Payment Reference System
+
+Each redemption has unique payment reference:
+
+```
+ref(R) = Hash(redemptionId, user, amount, timestamp)
+```
+
+**Properties**:
+- Uniqueness: `Pr[ref(R₁) = ref(R₂)] ≈ 0` for R₁ ≠ R₂
+- Deterministic: Same redemption always has same reference
+- Verifiable: FDC can verify payment includes correct reference
+
+### FDC Verification Flow
+
+```
+1. Agent sends: P_XRPL(ref(R))
+2. FDC verifies: Payment includes ref(R) in memo
+3. FDC confirms: FDC(P_XRPL(ref(R))) = true
+4. FLIPCore finalizes: Finalize(R) based on FDC confirmation
+```
+
+### Settlement Correctness
+
+**Theorem**: 
+```
+Pr[Settle(R) with payment P ≠ P_A(R)] = 0
+```
+
+**Proof**: See Mathematical Proofs document (Cross-Chain Settlement Correctness Theorem).
+
+---
+
+## Updated Flow Equations
+
+### Complete Redemption Flow
+
+**With Agent and XRPL**:
+
+```
+1. User requests: R = requestRedemption(amount, asset, xrplAddress)
+2. Escrow created: E(R) = createEscrow(R, LP?)
+3. Agent pays: P_A(R) = sendXRPPayment(xrplAddress, amount, ref(R))
+4. FDC verifies: FDC(P_A(R)) = verifyPayment(ref(R))
+5. Escrow released: Release(E(R), FDC(P_A(R)))
+6. Finalized: Finalize(R) if FDC(P_A(R)) = true
+```
+
+**Capital requirement unchanged**:
+```
+E[C_escrow] = λ · f · E[R] · E[T | fast]
+```
+
+---
+
+## New Invariants
+
+### Invariant 1: FDC Finality
+
+```
+∀ redemption R: Finalize(R) ⟹ FDC(R) = true
+```
+
+**Enforcement**: Code-level (handleFDCAttestation() required)
+
+---
+
+### Invariant 2: Agent Boundedness
+
+```
+∀ payment P: Agent(P) ⟹ ∃ FDC(P)
+```
+
+**Enforcement**: Agent must submit FDC proof for all payments
+
+---
+
+### Invariant 3: No Trust Assumption
+
+```
+∀ settlement S: Trust(S) = 0
+```
+
+**Enforcement**: All trust in FDC, not agent or LPs
+
+---
+
+**Last Updated**: January 2026  
+**Version**: FLIP v2.1 Mathematical Model (Post-Agent Update)
+

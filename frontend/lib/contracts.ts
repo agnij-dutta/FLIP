@@ -28,6 +28,7 @@ export const FLIP_CORE_ABI = [
     inputs: [
       { name: '_amount', type: 'uint256' },
       { name: '_asset', type: 'address' },
+      { name: '_xrplAddress', type: 'string' },
     ],
     name: 'requestRedemption',
     outputs: [{ name: 'redemptionId', type: 'uint256' }],
@@ -47,6 +48,7 @@ export const FLIP_CORE_ABI = [
       { name: 'status', type: 'uint8' },
       { name: 'fdcRequestId', type: 'uint256' },
       { name: 'provisionalSettled', type: 'bool' },
+      { name: 'xrplAddress', type: 'string' },
     ],
     stateMutability: 'view',
     type: 'function',

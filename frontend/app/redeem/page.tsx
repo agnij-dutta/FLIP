@@ -92,6 +92,20 @@ const SETTLEMENT_RECEIPT_ABI = [
     stateMutability: 'view',
     type: 'function',
   },
+  {
+    inputs: [{ name: '_receiptId', type: 'uint256' }],
+    name: 'redeemNow',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: '_receiptId', type: 'uint256' }],
+    name: 'redeemAfterFDC',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
 ] as const;
 
 // RedemptionRequested event ABI
@@ -112,6 +126,7 @@ export default function RedeemPage() {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const [amount, setAmount] = useState('');
+  const [xrplAddress, setXrplAddress] = useState('');
   const [redemptionId, setRedemptionId] = useState<bigint | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsApproval, setNeedsApproval] = useState(false);
@@ -292,6 +307,12 @@ export default function RedeemPage() {
   const handleRequestRedemption = async () => {
     if (!amount || !isConnected || decimals === undefined) return;
 
+    // Validate XRPL address
+    if (!xrplAddress || !/^r[1-9A-HJ-NP-Za-km-z]{25,34}$/.test(xrplAddress)) {
+      setError('Please enter a valid XRPL address (starts with "r")');
+      return;
+    }
+
     try {
       setError(null);
       setLastAction('redeem');
@@ -311,7 +332,7 @@ export default function RedeemPage() {
           const data = encodeFunctionData({
             abi: FLIP_CORE_ABI,
             functionName: 'requestRedemption',
-            args: [amountWei, FASSET_ADDRESS],
+            args: [amountWei, FASSET_ADDRESS, xrplAddress],
           });
           const estimated = await publicClient.estimateGas({
             account: address,
@@ -332,7 +353,7 @@ export default function RedeemPage() {
         address: CONTRACTS.coston2.FLIPCore,
         abi: FLIP_CORE_ABI,
         functionName: 'requestRedemption',
-        args: [amountWei, FASSET_ADDRESS],
+        args: [amountWei, FASSET_ADDRESS, xrplAddress],
         gas: gasLimit,
       });
     } catch (error: any) {
@@ -389,6 +410,23 @@ export default function RedeemPage() {
                     />
                   </div>
 
+                  <div>
+                    <label className="block text-sm font-medium mb-2">XRPL Address (where to receive XRP)</label>
+                    <input
+                      type="text"
+                      value={xrplAddress}
+                      onChange={(e) => {
+                        setXrplAddress(e.target.value);
+                        setError(null);
+                      }}
+                      placeholder="r..."
+                      className="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none text-white font-mono text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Your XRPL address where you want to receive XRP payments
+                    </p>
+                  </div>
+
                   {error && (
                     <div className="p-4 bg-red-900/30 border border-red-700 rounded-lg">
                       <p className="text-red-400 text-sm">{error}</p>
@@ -419,7 +457,7 @@ export default function RedeemPage() {
 
                   <Button
                     onClick={handleRequestRedemption}
-                    disabled={!amount || isPending || isConfirming || needsApproval || decimals === undefined}
+                    disabled={!amount || !xrplAddress || isPending || isConfirming || needsApproval || decimals === undefined}
                     className="w-full"
                     size="lg"
                   >
@@ -512,11 +550,53 @@ export default function RedeemPage() {
                         You have {receiptBalance.toString()} settlement receipt{Number(receiptBalance) !== 1 ? 's' : ''} that can be redeemed.
                       </p>
                       {receiptTokenIds.length > 0 && (
-                        <div className="mt-2 space-y-1">
+                        <div className="mt-2 space-y-2">
                           {receiptTokenIds.map((tokenId) => (
-                            <p key={tokenId.toString()} className="text-xs text-gray-400">
-                              Receipt #{tokenId.toString()}
-                            </p>
+                            <div key={tokenId.toString()} className="p-2 bg-gray-800 rounded border border-gray-600">
+                              <p className="text-xs text-gray-400 mb-2">Receipt #{tokenId.toString()}</p>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={async () => {
+                                    try {
+                                      setError(null);
+                                      await writeContract({
+                                        address: CONTRACTS.coston2.SettlementReceipt,
+                                        abi: SETTLEMENT_RECEIPT_ABI,
+                                        functionName: 'redeemNow',
+                                        args: [tokenId],
+                                      });
+                                    } catch (e: any) {
+                                      setError(`Failed to redeem receipt: ${e.message}`);
+                                    }
+                                  }}
+                                  disabled={isPending || isConfirming}
+                                >
+                                  Redeem Now (with haircut)
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={async () => {
+                                    try {
+                                      setError(null);
+                                      await writeContract({
+                                        address: CONTRACTS.coston2.SettlementReceipt,
+                                        abi: SETTLEMENT_RECEIPT_ABI,
+                                        functionName: 'redeemAfterFDC',
+                                        args: [tokenId],
+                                      });
+                                    } catch (e: any) {
+                                      setError(`Failed to redeem receipt: ${e.message}`);
+                                    }
+                                  }}
+                                  disabled={isPending || isConfirming}
+                                >
+                                  Wait for FDC (full amount)
+                                </Button>
+                              </div>
+                            </div>
                           ))}
                         </div>
                       )}

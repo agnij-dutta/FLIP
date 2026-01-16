@@ -108,7 +108,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < NUM_USERS; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
-            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset));
+            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
         }
         
@@ -162,7 +162,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
-            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset));
+            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             
             vm.prank(operator);
@@ -176,7 +176,7 @@ contract EscrowStressTest is Test {
         // 6th redemption should fall back to user-wait path
         vm.startPrank(users[5]);
         fAsset.mint(users[5], REDEMPTION_AMOUNT);
-        redemptionIds[5] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset));
+        redemptionIds[5] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         vm.prank(operator);
@@ -197,7 +197,7 @@ contract EscrowStressTest is Test {
         // Request redemption
         vm.startPrank(users[0]);
         fAsset.mint(users[0], REDEMPTION_AMOUNT);
-        redemptionId = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset));
+        redemptionId = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         // Finalize provisional
@@ -235,7 +235,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
-            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset));
+            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             
             vm.prank(operator);
@@ -268,7 +268,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
-            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset));
+            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             
             vm.prank(operator);
@@ -305,7 +305,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 10; i++) {
             vm.startPrank(users[i % NUM_USERS]);
             fAsset.mint(users[i % NUM_USERS], REDEMPTION_AMOUNT);
-            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset));
+            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             
             vm.prank(operator);
@@ -347,7 +347,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
-            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset));
+            redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             
             vm.prank(operator);

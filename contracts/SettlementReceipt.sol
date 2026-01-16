@@ -3,6 +3,15 @@ pragma solidity ^0.8.24;
 
 import "./EscrowVault.sol";
 
+// Interface for EscrowVault payout function
+interface IEscrowVault {
+    function payoutReceipt(
+        uint256 _redemptionId,
+        address _recipient,
+        uint256 _amount
+    ) external;
+}
+
 /**
  * @title SettlementReceipt
  * @notice ERC-721 NFT representing conditional settlement claims
@@ -70,7 +79,7 @@ contract SettlementReceipt {
     }
     
     constructor(address _escrowVault) {
-        escrowVault = EscrowVault(_escrowVault);
+        escrowVault = EscrowVault(payable(_escrowVault));
         owner = msg.sender;
     }
     
@@ -142,9 +151,12 @@ contract SettlementReceipt {
         
         metadata.redeemed = true;
         
-        // In production, this would transfer funds from escrow/LP to user
-        // For now, emit event - actual transfer handled by EscrowVault/FLIPCore
-        // Note: FLIPCore should listen to this event and update redemption status
+        // Request payout from EscrowVault
+        IEscrowVault(address(escrowVault)).payoutReceipt(
+            metadata.redemptionId,
+            msg.sender,
+            redeemAmount
+        );
         
         emit ReceiptRedeemed(_receiptId, metadata.redemptionId, msg.sender, redeemAmount, true);
     }
