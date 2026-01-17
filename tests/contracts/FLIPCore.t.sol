@@ -24,8 +24,8 @@ contract FLIPCoreTest is Test {
     MockStateConnector public stateConnector;
     MockFAsset public fAsset;
 
-    address public user = address(0x1);
-    address public operator = address(0x2);
+    address public user = address(0x1001); // Use non-precompile address
+    address public operator = address(0x2002);
 
     function setUp() public {
         // Deploy mocks
@@ -245,6 +245,10 @@ contract FLIPCoreTest is Test {
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
 
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
+
         // FDC confirms success
         vm.prank(operator);
         flipCore.handleFDCAttestation(redemptionId, 1, true);
@@ -268,6 +272,10 @@ contract FLIPCoreTest is Test {
         // Finalize provisional
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for timeout release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
 
         // Fast forward past timeout
         vm.warp(block.timestamp + 601); // 601 seconds > 600 timeout

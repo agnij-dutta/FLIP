@@ -9,9 +9,9 @@ contract SettlementReceiptTest is Test {
     EscrowVault public escrowVault;
     SettlementReceipt public settlementReceipt;
     
-    address public user = address(0x1);
-    address public lp = address(0x2);
-    address public asset = address(0x3);
+    address public user = address(0x1001); // Use non-precompile address
+    address public lp = address(0x2002);
+    address public asset = address(0x3003);
     
     function setUp() public {
         escrowVault = new EscrowVault();

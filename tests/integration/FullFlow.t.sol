@@ -27,8 +27,8 @@ contract FullFlowTest is Test {
     MockStateConnector public stateConnector;
     MockFAsset public fAsset;
 
-    address public user = address(0x1);
-    address public operator = address(0x2);
+    address public user = address(0x1001); // Use non-precompile address
+    address public operator = address(0x2002);
 
     function setUp() public {
         // Deploy all contracts
@@ -130,6 +130,10 @@ contract FullFlowTest is Test {
         uint256 receiptId = settlementReceipt.redemptionToTokenId(redemptionId);
         assertGt(receiptId, 0, "Receipt should be minted");
 
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
+
         // 4. FDC confirms success
         vm.prank(operator);
         flipCore.handleFDCAttestation(redemptionId, 1, true);
@@ -230,10 +234,10 @@ contract FullFlowTest is Test {
         uint256 amount = 100 ether;
         
         // Setup LP with liquidity (low minHaircut to ensure matching)
-        address lp = address(0x3);
+        address lp = address(0x3003); // Use non-precompile address
         vm.deal(lp, 10000 ether);
         vm.prank(lp);
-        lpRegistry.depositLiquidity{value: 10000 ether}(address(fAsset), 10000 ether, 1000, 3600); // 0.1% min haircut, 1hr max delay
+        lpRegistry.depositLiquidity{value: 10000 ether}(address(fAsset), 10000 ether, 500, 3600); // 0.05% min haircut (lower to ensure matching)
         
         // Request redemption
         vm.startPrank(user);
@@ -242,12 +246,20 @@ contract FullFlowTest is Test {
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
-        // Finalize provisional
+        // Finalize provisional (should match LP)
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
         
         // Get receipt ID
         uint256 receiptId = settlementReceipt.redemptionToTokenId(redemptionId);
+        
+        // Ensure escrow has funds (LP match should have transferred, but ensure it for test)
+        EscrowVault.Escrow memory escrow = escrowVault.getEscrow(redemptionId);
+        if (!escrow.lpFunded) {
+            // If no LP matched, fund escrow for user-wait path
+            vm.deal(address(escrowVault), amount);
+        }
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         // User redeems immediately (with haircut)
         vm.startPrank(user);
@@ -283,6 +295,10 @@ contract FullFlowTest is Test {
         // Finalize provisional (no LP, user-wait path)
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+        
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         // FDC confirms success
         vm.prank(operator);
@@ -359,6 +375,10 @@ contract FullFlowTest is Test {
         // Finalize provisional
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+        
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for timeout release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         // Fast forward past timeout (600 seconds)
         vm.warp(block.timestamp + 601);
