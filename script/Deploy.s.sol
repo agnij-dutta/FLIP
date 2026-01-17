@@ -92,7 +92,9 @@ contract Deploy is Script {
         // 9. Configure contracts
         console.log("Configuring contracts...");
         escrowVault.setFLIPCore(address(flipCore));
+        escrowVault.setSettlementReceipt(address(settlementReceipt));
         lpRegistry.setFLIPCore(address(flipCore));
+        lpRegistry.setEscrowVault(address(escrowVault));
         settlementReceipt.setFLIPCore(address(flipCore));
         console.log("Configuration complete!");
         

@@ -190,10 +190,12 @@ func (em *EventMonitor) getXRPLAddressFromRedemption(ctx context.Context, redemp
 	return "", fmt.Errorf("XRPL address query not yet implemented - needs contract binding")
 }
 
-// generatePaymentReference generates a payment reference from redemption ID
+// generatePaymentReference generates a payment reference from redemption data
+// Updated formula: Hash(chainId, redemptionId, user, amount, timestamp)
 func generatePaymentReference(redemptionID *big.Int) string {
-	// Payment reference is keccak256(redemptionId, user, amount, timestamp)
+	// TODO: Implement full hash with chainId, user, amount, timestamp
 	// For now, use redemption ID as hex string (will be updated to match FLIPCore logic)
+	// In production, this should match FLIPCore's payment reference generation exactly
 	return fmt.Sprintf("%064x", redemptionID)
 }
 

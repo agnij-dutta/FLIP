@@ -108,6 +108,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < NUM_USERS; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
+            fAsset.approve(address(flipCore), REDEMPTION_AMOUNT);
             redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
         }
@@ -162,6 +163,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
+            fAsset.approve(address(flipCore), REDEMPTION_AMOUNT);
             redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             
@@ -235,6 +237,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
+            fAsset.approve(address(flipCore), REDEMPTION_AMOUNT);
             redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             
@@ -268,6 +271,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
+            fAsset.approve(address(flipCore), REDEMPTION_AMOUNT);
             redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             
@@ -347,6 +351,7 @@ contract EscrowStressTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             vm.startPrank(users[i]);
             fAsset.mint(users[i], REDEMPTION_AMOUNT);
+            fAsset.approve(address(flipCore), REDEMPTION_AMOUNT);
             redemptionIds[i] = flipCore.requestRedemption(REDEMPTION_AMOUNT, address(fAsset), "rTEST_ADDRESS");
             vm.stopPrank();
             

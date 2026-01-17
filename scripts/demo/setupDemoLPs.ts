@@ -11,7 +11,7 @@ dotenv.config();
 
 // Configuration
 const RPC_URL = process.env.COSTON2_RPC_URL || "https://coston2-api.flare.network/ext/C/rpc";
-const LP_REGISTRY_ADDRESS = process.env.LP_REGISTRY_ADDRESS || "0x3A6aEa499Df3e330E9BBFfeF9Fe5393FA6227E36";
+const LP_REGISTRY_ADDRESS = process.env.LP_REGISTRY_ADDRESS || "0x3168f77a6A8a2f3c8A7D5e89d0AB7cbA0B72335B";
 const FXRP_ADDRESS = process.env.FXRP_ADDRESS || "0x0b6A3645c240605887a5532109323A3E12273dc7";
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 
@@ -36,19 +36,19 @@ const DEMO_LPS = [
   {
     name: 'LP1',
     amount: ethers.parseEther('10000'), // 10,000 FLR
-    minHaircut: 10000, // 1% (scaled: 1000000 = 100%)
+    minHaircut: 500, // 0.05% (scaled: 1000000 = 100%) - low to allow matching
     maxDelay: 3600, // 1 hour
   },
   {
     name: 'LP2',
     amount: ethers.parseEther('5000'), // 5,000 FLR
-    minHaircut: 5000, // 0.5%
+    minHaircut: 1000, // 0.1%
     maxDelay: 1800, // 30 minutes
   },
   {
     name: 'LP3',
     amount: ethers.parseEther('20000'), // 20,000 FLR
-    minHaircut: 20000, // 2%
+    minHaircut: 2000, // 0.2%
     maxDelay: 7200, // 2 hours
   },
 ];

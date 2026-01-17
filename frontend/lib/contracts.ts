@@ -1,14 +1,14 @@
-// FLIP v2 Contract Addresses (Coston2 Testnet)
+// FLIP v3 Contract Addresses (Coston2 Testnet - Real Fund Transfers)
 export const CONTRACTS = {
   coston2: {
-    FLIPCore: '0x1151473d15F012d0Dd54f8e707dB6708BD25981F',
-    EscrowVault: '0x96f78a441cd5F495BdE362685B200c285e445073',
-    SettlementReceipt: '0x17A223eB9D0d74265da99Ccbb994B6Ea75E4Ecb7',
-    LiquidityProviderRegistry: '0x3A6aEa499Df3e330E9BBFfeF9Fe5393FA6227E36',
-    OperatorRegistry: '0x98E12876aB1b38f1B6ac6ceA745f8BA703Ff2DEB',
-    PriceHedgePool: '0xb8d9efA7348b7E89d308F8f6284Fbc14D2C4d3Ef',
-    OracleRelay: '0xa9feC29134294e5Cb18e8125F700a1d8C354891f',
-    FtsoV2Adapter: '0x05108Aa7A166B1f9A32B9bbCb0D335cd1441Ad67',
+    FLIPCore: '0x192E107c9E1adAbf7d01624AFa158d10203F8DAB',
+    EscrowVault: '0x62ACcaF2A09Ae5d6d8E4A92104d1Cd16430146B4',
+    SettlementReceipt: '0xE87c033A9c4371B6192Ab213380fb30955b3Bf39',
+    LiquidityProviderRegistry: '0x3168f77a6A8a2f3c8A7D5e89d0AB7cbA0B72335B',
+    OperatorRegistry: '0xC067A34098fDa5Cd746494636Aaaa696EB07f66a',
+    PriceHedgePool: '0x790167f780F1ae511A717445074FF988FD3656f4',
+    OracleRelay: '0x5501773156a002B85b33C58c74e0Fc79FF97680f',
+    FtsoV2Adapter: '0x8cEDF2770E670d601394851C51e3aBFe3AB3177c',
     // FAssets (Coston2 Testnet)
     FXRP: '0x0b6A3645c240605887a5532109323A3E12273dc7', // FXRP Token from Asset Manager
   },

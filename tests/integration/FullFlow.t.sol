@@ -54,8 +54,13 @@ contract FullFlowTest is Test {
         vm.prank(address(escrowVault.owner()));
         escrowVault.setFLIPCore(address(flipCore));
         
+        vm.prank(address(escrowVault.owner()));
+        escrowVault.setSettlementReceipt(address(settlementReceipt));
+        
         vm.prank(address(lpRegistry.owner()));
         lpRegistry.setFLIPCore(address(flipCore));
+        vm.prank(address(lpRegistry.owner()));
+        lpRegistry.setEscrowVault(address(escrowVault));
         
         vm.prank(address(settlementReceipt.owner()));
         settlementReceipt.setFLIPCore(address(flipCore));
@@ -81,6 +86,7 @@ contract FullFlowTest is Test {
         // 1. User requests redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
@@ -144,6 +150,7 @@ contract FullFlowTest is Test {
         // 1. Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -180,6 +187,7 @@ contract FullFlowTest is Test {
         // 1. Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -230,6 +238,7 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
@@ -267,6 +276,7 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
@@ -319,6 +329,7 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, 100 ether);
+        fAsset.approve(address(flipCore), 100 ether);
         uint256 redemptionId = flipCore.requestRedemption(100 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
@@ -341,6 +352,7 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
@@ -373,6 +385,7 @@ contract FullFlowTest is Test {
         // Redemption 1: High confidence
         vm.startPrank(user);
         fAsset.mint(user, 100 ether);
+        fAsset.approve(address(flipCore), 100 ether);
         uint256 redemptionId1 = flipCore.requestRedemption(100 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
@@ -387,6 +400,7 @@ contract FullFlowTest is Test {
         // Redemption 2: Medium confidence
         vm.startPrank(user);
         fAsset.mint(user, 5000 ether);
+        fAsset.approve(address(flipCore), 5000 ether);
         uint256 redemptionId2 = flipCore.requestRedemption(5000 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
@@ -403,6 +417,7 @@ contract FullFlowTest is Test {
         // Redemption 3: Low confidence
         vm.startPrank(user);
         fAsset.mint(user, 100000 ether);
+        fAsset.approve(address(flipCore), 100000 ether);
         uint256 redemptionId3 = flipCore.requestRedemption(100000 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         

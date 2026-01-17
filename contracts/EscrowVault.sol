@@ -31,6 +31,7 @@ contract EscrowVault {
     mapping(uint256 => Escrow) public escrows; // redemptionId => Escrow
     address public owner;
     address public flipCore; // FLIPCore contract address
+    address public settlementReceipt; // SettlementReceipt contract address
     uint256 public constant FDC_TIMEOUT = 600; // 10 minutes timeout (adjustable)
 
     event EscrowCreated(
@@ -67,7 +68,7 @@ contract EscrowVault {
 
     modifier onlyAuthorized() {
         require(
-            msg.sender == owner || msg.sender == flipCore || msg.sender == address(this),
+            msg.sender == owner || msg.sender == flipCore || msg.sender == settlementReceipt || msg.sender == address(this),
             "EscrowVault: not authorized"
         );
         _;
@@ -90,6 +91,16 @@ contract EscrowVault {
         require(_flipCore != address(0), "EscrowVault: invalid address");
         require(flipCore == address(0), "EscrowVault: already set");
         flipCore = _flipCore;
+    }
+
+    /**
+     * @notice Set SettlementReceipt address (owner only, one-time setup)
+     * @param _settlementReceipt SettlementReceipt contract address
+     */
+    function setSettlementReceipt(address _settlementReceipt) external onlyOwner {
+        require(_settlementReceipt != address(0), "EscrowVault: invalid address");
+        require(settlementReceipt == address(0), "EscrowVault: already set");
+        settlementReceipt = _settlementReceipt;
     }
 
     /**
@@ -168,12 +179,18 @@ contract EscrowVault {
             emit EscrowReleased(_redemptionId, recipient, escrow.amount);
         } else {
             escrow.status = EscrowStatus.Failed;
-            // On failure: if LP-funded, LP loses funds; if user-wait, user gets refund
+            // On failure: if LP-funded, LP loses funds; if user-wait, user gets refund (if funds exist)
             address recipient = escrow.lpFunded ? address(0) : escrow.user;
             if (!escrow.lpFunded) {
-                // User gets refund on failure
-                payable(recipient).transfer(escrow.amount);
-                emit EscrowReleased(_redemptionId, recipient, escrow.amount);
+                // User-wait path: refund user if funds exist in escrow
+                // Note: For user-wait path, escrow might not have funds initially
+                if (escrow.amount > 0 && address(this).balance >= escrow.amount) {
+                    payable(recipient).transfer(escrow.amount);
+                    emit EscrowReleased(_redemptionId, recipient, escrow.amount);
+                } else {
+                    // No funds to refund (user-wait path without escrow funds)
+                    emit EscrowFailed(_redemptionId, escrow.user, 0);
+                }
             } else {
                 // LP loses funds on failure (penalty for incorrect assessment)
                 // Funds stay in contract (can be used for protocol fees or returned via governance)
@@ -264,7 +281,7 @@ contract EscrowVault {
     function canTimeout(uint256 _redemptionId)
         external
         view
-        returns (bool canTimeout)
+        returns (bool)
     {
         Escrow memory escrow = escrows[_redemptionId];
         return (

@@ -80,6 +80,7 @@ contract FLIPCoreTest is Test {
         // User must approve or have balance
         vm.startPrank(user);
         fAsset.mint(user, amount); // Ensure user has tokens
+        fAsset.approve(address(flipCore), amount); // Approve FLIPCore to spend
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -96,6 +97,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -129,6 +131,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -154,6 +157,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -179,6 +183,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -203,6 +208,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -231,6 +237,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
@@ -254,6 +261,7 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
+        fAsset.approve(address(flipCore), amount);
         uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
