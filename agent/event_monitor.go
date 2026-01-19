@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog/log"
 )
@@ -73,7 +73,7 @@ func (em *EventMonitor) Monitor(ctx context.Context, eventChan chan<- EscrowCrea
 	// EscrowCreated event signature
 	// event EscrowCreated(uint256 indexed redemptionId, address indexed user, uint256 receiptId, uint256 amount, uint256 timestamp)
 	eventSignature := []byte("EscrowCreated(uint256,address,uint256,uint256,uint256)")
-	eventTopic := common.BytesToHash(ethereum.Keccak256(eventSignature))
+	eventTopic := common.BytesToHash(crypto.Keccak256(eventSignature))
 
 	log.Info().
 		Uint64("from_block", em.lastBlock).

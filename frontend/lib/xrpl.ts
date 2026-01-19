@@ -52,7 +52,7 @@ export async function getXRPBalance(address: string): Promise<XRPLBalance> {
 
     const balance = accountInfo.result.account_data.Balance;
     return {
-      balance: dropsToXrp(balance),
+      balance: String(dropsToXrp(balance)),
       drops: balance,
     };
   } finally {
@@ -99,7 +99,15 @@ export async function sendXRPPayment(
     // Submit and wait for finalization
     const result: TxResponse = await client.submitAndWait(signed.tx_blob);
     
-    if (result.result.meta?.TransactionResult === 'tesSUCCESS') {
+    const txResult =
+      result.result &&
+      typeof (result.result as any).meta === 'object' &&
+      (result.result as any).meta &&
+      'TransactionResult' in (result.result as any).meta
+        ? ((result.result as any).meta.TransactionResult as string)
+        : undefined;
+
+    if (txResult === 'tesSUCCESS') {
       return {
         success: true,
         txHash: signed.hash,
@@ -108,7 +116,7 @@ export async function sendXRPPayment(
     } else {
       return {
         success: false,
-        error: result.result.meta?.TransactionResult || 'Unknown error',
+        error: txResult || 'Unknown error',
       };
     }
   } catch (error: any) {
@@ -142,8 +150,11 @@ export async function monitorPayment(
     });
 
     return new Promise((resolve) => {
+      let interval: ReturnType<typeof setInterval> | undefined;
+
       const checkTimeout = () => {
         if (Date.now() - startTime > timeout) {
+          if (interval) clearInterval(interval);
           client.disconnect();
           resolve({
             success: false,
@@ -152,8 +163,8 @@ export async function monitorPayment(
         }
       };
 
-      client.on('transaction', (tx) => {
-        if (tx.transaction?.TransactionType === 'Payment') {
+      client.on('transaction', (tx: any) => {
+        if (tx?.transaction?.TransactionType === 'Payment') {
           const payment = tx.transaction as Payment;
           
           // Check if payment is to our address
@@ -162,10 +173,11 @@ export async function monitorPayment(
             const memos = payment.Memos || [];
             for (const memo of memos) {
               if (memo.Memo?.MemoData === paymentReference) {
+                if (interval) clearInterval(interval);
                 client.disconnect();
                 resolve({
                   success: true,
-                  txHash: tx.transaction.hash,
+                  txHash: tx?.transaction?.hash ?? tx?.hash,
                   finalized: true,
                 });
                 return;
@@ -176,7 +188,7 @@ export async function monitorPayment(
       });
 
       // Check timeout periodically
-      const interval = setInterval(() => {
+      interval = setInterval(() => {
         checkTimeout();
       }, 1000);
     });

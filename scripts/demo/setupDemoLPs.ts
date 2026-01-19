@@ -31,23 +31,23 @@ const LP_REGISTRY_ABI = [
   },
 ] as const;
 
-// Demo LP configurations
+// Demo LP configurations (adjusted for smaller balances)
 const DEMO_LPS = [
   {
     name: 'LP1',
-    amount: ethers.parseEther('10000'), // 10,000 FLR
+    amount: ethers.parseEther('50'), // 50 FLR (smaller amount for testing)
     minHaircut: 500, // 0.05% (scaled: 1000000 = 100%) - low to allow matching
     maxDelay: 3600, // 1 hour
   },
   {
     name: 'LP2',
-    amount: ethers.parseEther('5000'), // 5,000 FLR
+    amount: ethers.parseEther('50'), // 50 FLR
     minHaircut: 1000, // 0.1%
     maxDelay: 1800, // 30 minutes
   },
   {
     name: 'LP3',
-    amount: ethers.parseEther('20000'), // 20,000 FLR
+    amount: ethers.parseEther('50'), // 50 FLR
     minHaircut: 2000, // 0.2%
     maxDelay: 7200, // 2 hours
   },
@@ -93,17 +93,13 @@ async function setupDemoLPs() {
 }
 
 // CLI usage
-if (require.main === module) {
-  setupDemoLPs()
-    .then(() => {
-      console.log("\n✅ All demo LPs set up successfully");
-      process.exit(0);
-    })
-    .catch((error) => {
-      console.error("\n❌ Error:", error);
-      process.exit(1);
-    });
-}
-
-export { setupDemoLPs };
+setupDemoLPs()
+  .then(() => {
+    console.log("\n✅ All demo LPs set up successfully");
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error("\n❌ Error:", error);
+    process.exit(1);
+  });
 

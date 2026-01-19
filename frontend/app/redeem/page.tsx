@@ -123,7 +123,7 @@ const REDEMPTION_REQUESTED_EVENT = {
 } as const;
 
 export default function RedeemPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, connector } = useAccount();
   const publicClient = usePublicClient();
   const [amount, setAmount] = useState('');
   const [xrplAddress, setXrplAddress] = useState('');
@@ -133,7 +133,16 @@ export default function RedeemPage() {
   const [lastAction, setLastAction] = useState<'approve' | 'redeem' | null>(null);
   const [receiptTokenIds, setReceiptTokenIds] = useState<bigint[]>([]);
 
-  const { writeContract, data: hash, isPending } = useWriteContract();
+  const { writeContract, data: hash, isPending, error: writeError, reset: resetWrite } = useWriteContract({
+    onError: (error) => {
+      console.error('writeContract error callback:', error);
+      setError(error.message || error.shortMessage || 'Transaction failed. Check console for details.');
+      setLastAction(null);
+    },
+    onSuccess: (hash) => {
+      console.log('writeContract success callback:', hash);
+    },
+  });
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
@@ -281,25 +290,81 @@ export default function RedeemPage() {
     }
   }, [amount, allowance, decimals]);
 
-  const handleApprove = async () => {
-    if (!isConnected || decimals === undefined) return;
+  const handleApprove = () => {
+    console.log('handleApprove called', {
+      isConnected,
+      connector: connector?.name,
+      address,
+      decimals,
+      FLIPCore: CONTRACTS.coston2.FLIPCore,
+      FXRP: FASSET_ADDRESS,
+      isPending,
+      writeError,
+    });
 
+    if (!isConnected) {
+      setError('Please connect your wallet first');
+      return;
+    }
+
+    if (!connector) {
+      setError('Wallet connector not available. Please reconnect your wallet.');
+      return;
+    }
+
+    if (decimals === undefined) {
+      setError('Loading token decimals... Please wait.');
+      return;
+    }
+
+    if (!CONTRACTS.coston2.FLIPCore) {
+      setError('FLIPCore address not configured');
+      return;
+    }
+
+    if (!FASSET_ADDRESS || FASSET_ADDRESS === '0x0000000000000000000000000000000000000000') {
+      setError('FXRP token address not configured');
+      return;
+    }
+
+    // Reset any previous errors
+    if (writeError) {
+      resetWrite();
+    }
+    
+    setError(null);
+    setLastAction('approve');
+    
+    // Approve unlimited (max uint256) - this is the standard pattern for DeFi
+    // Users can revoke approval later if needed
+    
+    console.log('Calling writeContract with:', {
+      address: FASSET_ADDRESS,
+      functionName: 'approve',
+      args: [CONTRACTS.coston2.FLIPCore, maxUint256.toString()],
+    });
+    
     try {
-      setError(null);
-      setLastAction('approve');
-      // Approve unlimited (max uint256) - this is the standard pattern for DeFi
-      // Users can revoke approval later if needed
-      
-      await writeContract({
+      // In wagmi v2, writeContract triggers the transaction
+      // It should open MetaMask automatically
+      writeContract({
         address: FASSET_ADDRESS,
         abi: ERC20_ABI,
         functionName: 'approve',
         args: [CONTRACTS.coston2.FLIPCore, maxUint256],
-        gas: BigInt(100000), // Gas limit for approval
       });
+      console.log('writeContract called - MetaMask should open now');
     } catch (error: any) {
-      console.error('Error approving:', error);
-      setError(error?.message || 'Failed to approve tokens');
+      // This catches synchronous validation errors
+      console.error('Synchronous error calling writeContract:', error);
+      console.error('Error details:', {
+        name: error?.name,
+        message: error?.message,
+        shortMessage: error?.shortMessage,
+        cause: error?.cause,
+        stack: error?.stack,
+      });
+      setError(error?.message || error?.shortMessage || 'Failed to initiate approval. Check console for details.');
       setLastAction(null);
     }
   };
@@ -427,9 +492,20 @@ export default function RedeemPage() {
                     </p>
                   </div>
 
-                  {error && (
+                  {(error || writeError) && (
                     <div className="p-4 bg-red-900/30 border border-red-700 rounded-lg">
-                      <p className="text-red-400 text-sm">{error}</p>
+                      <p className="text-red-400 text-sm font-semibold">Error:</p>
+                      <p className="text-red-300 text-sm mt-1">
+                        {error || writeError?.message || writeError?.shortMessage || 'Unknown error'}
+                      </p>
+                      {writeError && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-red-400 cursor-pointer">Error details</summary>
+                          <pre className="text-xs text-red-300 mt-1 overflow-auto">
+                            {JSON.stringify(writeError, null, 2)}
+                          </pre>
+                        </details>
+                      )}
                     </div>
                   )}
 
@@ -444,8 +520,20 @@ export default function RedeemPage() {
                         </p>
                       </div>
                       <Button
-                        onClick={handleApprove}
-                        disabled={isPending || isConfirming || decimals === undefined}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('Approve button clicked', { 
+                            isPending, 
+                            isConfirming, 
+                            decimals, 
+                            isConnected,
+                            FLIPCore: CONTRACTS.coston2.FLIPCore,
+                            FXRP: FASSET_ADDRESS
+                          });
+                          handleApprove();
+                        }}
+                        disabled={isPending || isConfirming || decimals === undefined || !isConnected}
                         className="w-full"
                         size="lg"
                         variant="outline"

@@ -13,7 +13,7 @@ xrpl:
   testnet_rpc: "https://s.altnet.rippletest.net:51233"
   # Agent XRPL wallet seed (for testnet)
   # WARNING: Never commit real seeds to git
-  wallet_seed: "sYOUR_WALLET_SEED_HERE"
+  wallet_seed: "sEdVpVRzwnzVcL4GNGQVzDJuWMZGtp6"
 
 # FDC Configuration
 fdc:

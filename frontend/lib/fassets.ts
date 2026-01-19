@@ -7,15 +7,46 @@
 
 import { createPublicClient, createWalletClient, http, parseUnits, formatUnits, Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { coston2 } from 'viem/chains';
+import { coston2 } from './chains';
+import { getAssetManagerFXRP } from './contractRegistry';
 
 // Coston2 RPC
 const COSTON2_RPC = 'https://coston2-api.flare.network/ext/C/rpc';
 
 // AssetManager contract address on Coston2
-// This should be fetched from ContractRegistry, but for now we'll use a known address
-// In production, use: ContractRegistry.getAssetManagerFXRP()
-const ASSET_MANAGER_ADDRESS = '0x0000000000000000000000000000000000000000'; // TODO: Get from ContractRegistry
+// Resolved from FXRP token via `assetManager()`, cached in-module.
+let ASSET_MANAGER_ADDRESS: Address | null = null;
+let ASSET_MANAGER_ADDRESS_PROMISE: Promise<Address | null> | null = null;
+
+/**
+ * Get AssetManager address (cached, fetched from ContractRegistry)
+ */
+export async function getAssetManagerAddress(): Promise<Address | null> {
+  if (ASSET_MANAGER_ADDRESS) {
+    return ASSET_MANAGER_ADDRESS;
+  }
+
+  if (!ASSET_MANAGER_ADDRESS_PROMISE) {
+    ASSET_MANAGER_ADDRESS_PROMISE = getAssetManagerFXRP();
+  }
+
+  const address = await ASSET_MANAGER_ADDRESS_PROMISE;
+  if (address) {
+    ASSET_MANAGER_ADDRESS = address;
+  }
+  
+  return address;
+}
+
+async function requireAssetManagerAddress(): Promise<Address> {
+  const address = await getAssetManagerAddress();
+  if (!address) {
+    throw new Error(
+      'AssetManager address not configured or could not be resolved on Coston2. Minting FXRP requires the FXRP AssetManager contract. For testing, you can skip minting if you already have FXRP tokens.'
+    );
+  }
+  return address;
+}
 
 // AssetManager ABI (simplified - use full ABI from @flarenetwork/flare-periphery-contracts)
 export const ASSET_MANAGER_ABI = [
@@ -61,9 +92,11 @@ export const ASSET_MANAGER_ABI = [
           { name: 'feeBIPS', type: 'uint256' },
           { name: 'freeCollateralLots', type: 'uint256' },
           { name: 'status', type: 'uint8' },
+          // Note: There may be additional fields in the actual response
         ],
         name: '_agents',
-        type: 'tuple[]' },
+        type: 'tuple[]',
+      },
       { name: '_totalCount', type: 'uint256' },
     ],
     stateMutability: 'view',
@@ -118,8 +151,16 @@ export interface AgentInfo {
   agentVault: Address;
   feeBIPS: bigint;
   freeCollateralLots: bigint;
-  status: number; // 0 = NORMAL, others = various states
+  status: number; // 0 = NORMAL, others = various states (PAUSED, LIQUIDATION, etc.)
 }
+
+// Agent status values (from FAssets)
+export const AGENT_STATUS = {
+  NORMAL: 0,
+  PAUSED: 1,
+  LIQUIDATION: 2,
+  DESTROYED: 3,
+} as const;
 
 export interface CollateralReservationInfo {
   minter: Address;
@@ -129,7 +170,7 @@ export interface CollateralReservationInfo {
   feeUBA: bigint;
   lastUnderlyingBlock: bigint;
   lastUnderlyingTimestamp: bigint;
-  paymentReference: string;
+  paymentReference: `0x${string}`;
 }
 
 export interface FDCProof {
@@ -144,32 +185,109 @@ export async function getAvailableAgents(
   offset: number = 0,
   limit: number = 100
 ): Promise<AgentInfo[]> {
+  const assetManagerAddress = await requireAssetManagerAddress();
+
   const publicClient = createPublicClient({
     chain: coston2,
     transport: http(COSTON2_RPC),
   });
 
-  const result = await publicClient.readContract({
-    address: ASSET_MANAGER_ADDRESS as Address,
-    abi: ASSET_MANAGER_ABI,
-    functionName: 'getAvailableAgentsDetailedList',
-    args: [BigInt(offset), BigInt(limit)],
-  });
+  try {
+    const result = await publicClient.readContract({
+      address: assetManagerAddress,
+      abi: ASSET_MANAGER_ABI,
+      functionName: 'getAvailableAgentsDetailedList',
+      args: [BigInt(offset), BigInt(limit)],
+    });
 
-  return result[0] as AgentInfo[];
+    // Result is a tuple: [agents[], totalCount]
+    // viem returns named tuple outputs as an object with property names
+    let agents: AgentInfo[];
+    if (result && typeof result === 'object' && '_agents' in result) {
+      // Named tuple output
+      agents = (result as any)._agents || [];
+    } else if (Array.isArray(result)) {
+      // Array output (positional)
+      agents = result[0] || [];
+    } else {
+      console.error('Unexpected agents response format:', result);
+      return [];
+    }
+    
+    if (!Array.isArray(agents)) {
+      console.error('Agents is not an array:', agents);
+      return [];
+    }
+    
+    // Fix: Parse agents correctly - viem might return them in a different format
+    const fixedAgents = agents.map((agent: any) => {
+      // Log raw agent data for debugging
+      console.log('Raw agent data:', agent);
+      
+      // Extract fields - handle both object and array formats
+      const agentVault = agent.agentVault || agent[0];
+      let feeBIPS = agent.feeBIPS || agent[1];
+      let freeCollateralLots = agent.freeCollateralLots || agent[2];
+      let status = agent.status || agent[3];
+      
+      // Convert bigint to number if needed
+      if (typeof feeBIPS === 'bigint') feeBIPS = Number(feeBIPS);
+      if (typeof freeCollateralLots === 'bigint') freeCollateralLots = Number(freeCollateralLots);
+      if (typeof status === 'bigint') status = Number(status);
+      
+      // Status should be uint8 (0-255). If it's larger, it's likely reading the wrong field
+      // Common issue: reading freeCollateralLots or a larger field as status
+      // If status is clearly wrong (like 20000), assume it's a parsing error and default to 0
+      if (status > 255 || status === 20000 || status === 25) {
+        console.warn('Status value seems wrong:', status, '- treating as 0 (NORMAL). Raw agent:', agent);
+        status = 0; // Default to NORMAL if parsing is wrong
+      }
+      
+      // FeeBIPS sanity check - should be reasonable (e.g., 0-10000 for 0-100%)
+      // If fee is astronomical, it's likely reading the wrong field
+      if (feeBIPS > 1000000 || feeBIPS < 0) {
+        console.warn('FeeBIPS seems invalid:', feeBIPS, '- treating as 0%. Raw agent:', agent);
+        feeBIPS = 0; // Default to 0% if parsing is clearly wrong
+      }
+      
+      // FreeCollateralLots sanity check
+      if (freeCollateralLots < 0 || freeCollateralLots > 1000000) {
+        console.warn('FreeCollateralLots seems invalid:', freeCollateralLots, '- Raw agent:', agent);
+        freeCollateralLots = 0;
+      }
+      
+      return {
+        agentVault,
+        feeBIPS: BigInt(Math.floor(feeBIPS)),
+        freeCollateralLots: BigInt(Math.floor(freeCollateralLots)),
+        status: status & 0xFF, // Ensure uint8 range
+      };
+    });
+    
+    console.log('Fixed agents:', fixedAgents);
+    return fixedAgents as AgentInfo[];
+  } catch (error: any) {
+    console.error('Error loading agents:', error);
+    // If contract doesn't exist or function fails, return empty array
+    if (error.message?.includes('not a contract') || error.message?.includes('no data')) {
+      throw new Error('AssetManager contract not found or not deployed on Coston2. Minting FXRP may not be available on testnet. You can test redemption if you already have FXRP tokens.');
+    }
+    throw error;
+  }
 }
 
 /**
  * Get collateral reservation fee
  */
 export async function getCollateralReservationFee(lots: number): Promise<bigint> {
+  const assetManagerAddress = await requireAssetManagerAddress();
   const publicClient = createPublicClient({
     chain: coston2,
     transport: http(COSTON2_RPC),
   });
 
   return await publicClient.readContract({
-    address: ASSET_MANAGER_ADDRESS as Address,
+    address: assetManagerAddress,
     abi: ASSET_MANAGER_ABI,
     functionName: 'collateralReservationFee',
     args: [BigInt(lots)],
@@ -202,32 +320,35 @@ export async function reserveCollateral(
 export async function getCollateralReservationInfo(
   reservationId: bigint
 ): Promise<CollateralReservationInfo> {
+  const assetManagerAddress = await requireAssetManagerAddress();
   const publicClient = createPublicClient({
     chain: coston2,
     transport: http(COSTON2_RPC),
   });
 
   const result = await publicClient.readContract({
-    address: ASSET_MANAGER_ADDRESS as Address,
+    address: assetManagerAddress,
     abi: ASSET_MANAGER_ABI,
     functionName: 'collateralReservationInfo',
     args: [reservationId],
   });
 
-  return result[0] as CollateralReservationInfo;
+  // `collateralReservationInfo` has a single tuple return, so viem returns the tuple directly.
+  return result as unknown as CollateralReservationInfo;
 }
 
 /**
  * Get asset minting decimals (for XRP, typically 6)
  */
 export async function getAssetMintingDecimals(): Promise<number> {
+  const assetManagerAddress = await requireAssetManagerAddress();
   const publicClient = createPublicClient({
     chain: coston2,
     transport: http(COSTON2_RPC),
   });
 
   const decimals = await publicClient.readContract({
-    address: ASSET_MANAGER_ADDRESS as Address,
+    address: assetManagerAddress,
     abi: ASSET_MANAGER_ABI,
     functionName: 'assetMintingDecimals',
   });

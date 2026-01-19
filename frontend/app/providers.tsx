@@ -1,40 +1,29 @@
 'use client';
 
-import { WagmiProvider } from 'wagmi';
+import { WagmiProvider, createConfig, http } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { RainbowKitProvider, getDefaultWallets } from '@rainbow-me/rainbowkit';
 import '@rainbow-me/rainbowkit/styles.css';
-import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { flare, flareTestnet } from 'wagmi/chains';
-import { defineChain } from 'viem';
+import { coston2 } from '@/lib/chains';
 
-// Coston2 testnet chain
-const coston2 = defineChain({
-  id: 114,
-  name: 'Coston2',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'C2FLR',
-    symbol: 'C2FLR',
-  },
-  rpcUrls: {
-    default: {
-      http: ['https://coston2-api.flare.network/ext/C/rpc'],
-    },
-  },
-  blockExplorers: {
-    default: {
-      name: 'Coston2 Explorer',
-      url: 'https://coston2-explorer.flare.network',
-    },
-  },
-});
-
-const config = getDefaultConfig({
+// Get connectors from RainbowKit
+const { connectors } = getDefaultWallets({
   appName: 'FLIP Protocol',
   projectId: 'flip-protocol-demo',
   chains: [coston2, flareTestnet, flare],
-  ssr: true,
+});
+
+// Create wagmi config manually to ensure proper connector setup
+const config = createConfig({
+  chains: [coston2, flareTestnet, flare],
+  connectors,
+  transports: {
+    [coston2.id]: http(),
+    [flareTestnet.id]: http(),
+    [flare.id]: http(),
+  },
+  ssr: false,
 });
 
 const queryClient = new QueryClient();

@@ -196,7 +196,7 @@ func (fs *FDCSubmitter) SubmitProof(ctx context.Context, redemptionID *big.Int, 
 	}
 
 	// Encode function call
-	data, err := contractABI.Pack("handleFDCAttestation", redemptionID, requestID, success)
+	_, err = contractABI.Pack("handleFDCAttestation", redemptionID, requestID, success)
 	if err != nil {
 		return fmt.Errorf("failed to encode function call: %w", err)
 	}

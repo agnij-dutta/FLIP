@@ -253,7 +253,7 @@ export default function LPDashboard() {
                       step="0.01"
                     />
                     <p className="text-xs text-gray-400 mt-1">
-                      Minimum haircut you'll accept (e.g., 1% = 1.0)
+                      Minimum haircut you&apos;ll accept (e.g., 1% = 1.0)
                     </p>
                   </div>
 
@@ -266,7 +266,7 @@ export default function LPDashboard() {
                       placeholder="3600"
                     />
                     <p className="text-xs text-gray-400 mt-1">
-                      Maximum delay you'll tolerate before FDC confirmation
+                      Maximum delay you&apos;ll tolerate before FDC confirmation
                     </p>
                   </div>
 

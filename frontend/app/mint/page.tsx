@@ -5,18 +5,14 @@ import { useState, useEffect } from 'react';
 import React from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, usePublicClient } from 'wagmi';
 import { parseUnits, formatUnits, Address, decodeEventLog } from 'viem';
-import { coston2 } from 'viem/chains';
+import { coston2 } from '@/lib/chains';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getAvailableAgents, getCollateralReservationFee, getCollateralReservationInfo, getAssetMintingDecimals, ASSET_MANAGER_ABI, type AgentInfo, type CollateralReservationInfo } from '@/lib/fassets';
+import { getAvailableAgents, getCollateralReservationFee, getCollateralReservationInfo, getAssetMintingDecimals, getAssetManagerAddress, ASSET_MANAGER_ABI, type AgentInfo, type CollateralReservationInfo } from '@/lib/fassets';
 import { connectXRPLClient, getXRPBalance, sendXRPPayment, monitorPayment, isValidXRPLAddress, type XRPLBalance } from '@/lib/xrpl';
 import { Wallet } from 'xrpl';
-
-// AssetManager address on Coston2
-// TODO: Get from ContractRegistry dynamically
-const ASSET_MANAGER_ADDRESS = '0x0000000000000000000000000000000000000000' as Address; // Will be updated
 
 // FXRP address
 const FXRP_ADDRESS = '0x0b6A3645c240605887a5532109323A3E12273dc7' as Address;
@@ -60,6 +56,7 @@ export default function MintPage() {
   const [step, setStep] = useState<MintingStep>('select-agent');
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
+  const [assetManagerAddress, setAssetManagerAddress] = useState<Address | null>(null);
   const [lots, setLots] = useState<string>('1');
   const [crfAmount, setCrfAmount] = useState<bigint>(BigInt(0));
   const [reservationId, setReservationId] = useState<bigint | null>(null);
@@ -103,6 +100,13 @@ export default function MintPage() {
     }
   }, [step]);
 
+  // Resolve AssetManager address (once)
+  useEffect(() => {
+    getAssetManagerAddress()
+      .then((am) => setAssetManagerAddress(am))
+      .catch(() => setAssetManagerAddress(null));
+  }, []);
+
   // Step 2: Calculate CRF when agent and lots are selected
   useEffect(() => {
     if (selectedAgent && lots && step === 'reserve-collateral') {
@@ -128,12 +132,27 @@ export default function MintPage() {
     try {
       setLoading(true);
       setError(null);
+      
       const availableAgents = await getAvailableAgents(0, 100);
-      // Filter for NORMAL status agents (status = 0)
-      const normalAgents = availableAgents.filter(agent => agent.status === 0);
-      setAgents(normalAgents);
+      console.log('Loaded agents:', availableAgents);
+      
+      // Show all agents with their status
+      // Status 0 = NORMAL (active), but we'll show all and let user see status
+      setAgents(availableAgents);
+      
+      if (availableAgents.length === 0) {
+        setError('No available agents found. Minting FXRP may not be available on Coston2 testnet. You can test redemption if you already have FXRP tokens.');
+      } else {
+        // Check if any are NORMAL status
+        const normalAgents = availableAgents.filter(agent => agent.status === 0);
+        if (normalAgents.length === 0) {
+          setError(`Found ${availableAgents.length} agent(s), but none are in NORMAL status (status=0). Current status: ${availableAgents[0]?.status}. You may still be able to use them, or they may be paused.`);
+        }
+      }
     } catch (err: any) {
+      console.error('Error loading agents:', err);
       setError(`Failed to load agents: ${err.message}`);
+      setAgents([]);
     } finally {
       setLoading(false);
     }
@@ -183,7 +202,7 @@ export default function MintPage() {
   }
 
   async function handleReserveCollateral() {
-    if (!selectedAgent || !address) return;
+    if (!selectedAgent || !address || !assetManagerAddress) return;
 
     try {
       setLoading(true);
@@ -194,7 +213,7 @@ export default function MintPage() {
       
       // Call reserveCollateral
       writeContract({
-        address: ASSET_MANAGER_ADDRESS,
+        address: assetManagerAddress,
         abi: ASSET_MANAGER_ABI,
         functionName: 'reserveCollateral',
         args: [
@@ -241,8 +260,9 @@ export default function MintPage() {
               topics: log.topics,
             });
             
-            if (decoded.eventName === 'CollateralReserved') {
-              setReservationId(decoded.args.collateralReservationId as bigint);
+            // viem returns args as an object when inputs have names
+            if (decoded.eventName === 'CollateralReserved' && decoded.args && (decoded.args as any).collateralReservationId != null) {
+              setReservationId((decoded.args as any).collateralReservationId as bigint);
               break;
             }
           } catch (e) {
@@ -311,6 +331,10 @@ export default function MintPage() {
       setError('FDC proof not ready');
       return;
     }
+    if (!assetManagerAddress) {
+      setError('AssetManager address could not be resolved.');
+      return;
+    }
 
     try {
       setLoading(true);
@@ -320,17 +344,17 @@ export default function MintPage() {
       // For now, this is a placeholder
       const proof = {
         merkleProof: [],
-        data: '',
+        data: '0x',
       };
 
       writeContract({
-        address: ASSET_MANAGER_ADDRESS,
+        address: assetManagerAddress,
         abi: ASSET_MANAGER_ABI,
         functionName: 'executeMinting',
         args: [
           {
             merkleProof: proof.merkleProof,
-            data: proof.data,
+            data: proof.data as `0x${string}`,
           },
           reservationId,
         ],
@@ -400,7 +424,38 @@ export default function MintPage() {
                 {loading ? (
                   <p className="text-center text-gray-400">Loading agents...</p>
                 ) : agents.length === 0 ? (
-                  <p className="text-center text-gray-400">No available agents found</p>
+                  <div className="space-y-4">
+                    <div className="bg-yellow-500/10 border border-yellow-500 rounded-lg p-4">
+                      <p className="text-yellow-400 text-sm mb-2">
+                        ⚠️ AssetManager not configured or no agents available on Coston2 testnet.
+                      </p>
+                      <p className="text-gray-400 text-sm mb-3">
+                        Minting FXRP requires the AssetManager contract to be deployed and configured.
+                      </p>
+                      {parseFloat(fxrpBalance) > 0 ? (
+                        <div className="mt-3">
+                          <p className="text-green-400 text-sm mb-2">
+                            ✅ You already have {fxrpBalance} FXRP in your wallet!
+                          </p>
+                          <a
+                            href="/redeem"
+                            className="text-blue-400 hover:text-blue-300 text-sm underline"
+                          >
+                            → Go to Redemption Page to test FLIP
+                          </a>
+                        </div>
+                      ) : (
+                        <p className="text-gray-400 text-sm">
+                          To test FLIP redemption, you&apos;ll need FXRP tokens. You can:
+                          <ul className="list-disc list-inside mt-2 space-y-1">
+                            <li>Get FXRP from Flare testnet faucet or community</li>
+                            <li>Configure AssetManager address if you have it</li>
+                            <li>Use a different testnet that has FAssets deployed</li>
+                          </ul>
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     <Label>Select Agent</Label>
@@ -417,16 +472,28 @@ export default function MintPage() {
                             <div>
                               <p className="font-mono text-sm">{agent.agentVault.slice(0, 10)}...</p>
                               <p className="text-sm text-gray-400">
-                                Fee: {Number(agent.feeBIPS) / 100}% | Available: {Number(agent.freeCollateralLots)} lots
+                                Fee: {Number(agent.feeBIPS) / 10000}% | Available: {Number(agent.freeCollateralLots)} lots
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                Status: {
+                                  agent.status === 0 ? '✅ NORMAL' :
+                                  agent.status === 1 ? '⏸️ PAUSED' :
+                                  agent.status === 2 ? '⚠️ LIQUIDATION' :
+                                  agent.status === 3 ? '❌ DESTROYED' :
+                                  `⚠️ Unknown (${agent.status})`
+                                }
                               </p>
                             </div>
                             <Button
                               onClick={(e) => {
                                 e.stopPropagation();
+                                if (agent.status !== 0) {
+                                  setError(`Agent status is ${agent.status} (not NORMAL). The contract may reject this agent. Try anyway?`);
+                                }
                                 handleSelectAgent(agent);
                               }}
                             >
-                              Select
+                              Select {agent.status !== 0 && '(Status: ' + agent.status + ')'}
                             </Button>
                           </div>
                         </CardContent>
@@ -451,7 +518,7 @@ export default function MintPage() {
 
                 <Button
                   onClick={handleReserveCollateral}
-                  disabled={isPending || isWaitingTx || loading}
+                  disabled={!assetManagerAddress || isPending || isWaitingTx || loading}
                   className="w-full"
                 >
                   {isPending || isWaitingTx ? 'Processing...' : 'Reserve Collateral'}
