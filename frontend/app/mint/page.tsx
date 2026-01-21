@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getAvailableAgents, getCollateralReservationFee, getCollateralReservationInfo, getAssetMintingDecimals, getAssetManagerAddress, ASSET_MANAGER_ABI, type AgentInfo, type CollateralReservationInfo } from '@/lib/fassets';
-import { connectXRPLClient, getXRPBalance, sendXRPPayment, monitorPayment, isValidXRPLAddress, generateAndFundTestnetWallet, type XRPLBalance } from '@/lib/xrpl';
+import { connectXRPLClient, getXRPBalance, sendXRPPayment, monitorPayment, getTransaction, isValidXRPLAddress, generateAndFundTestnetWallet, type XRPLBalance } from '@/lib/xrpl';
 import { Wallet } from 'xrpl';
 
 // FXRP address
@@ -72,6 +72,9 @@ export default function MintPage() {
   const [xrplWallet, setXrplWallet] = useState<Wallet | null>(null);
   const [xrpBalance, setXrpBalance] = useState<XRPLBalance | null>(null);
   const [xrpTxHash, setXrpTxHash] = useState<string | null>(null);
+  const [walletSecret, setWalletSecret] = useState<string>('');
+  const [sendingPayment, setSendingPayment] = useState<boolean>(false);
+  const [secretError, setSecretError] = useState<string | null>(null);
   const [fdcRoundId, setFdcRoundId] = useState<number | null>(null);
   const [fxrpBalance, setFxrpBalance] = useState<string>('0');
   const [error, setError] = useState<string | null>(null);
@@ -456,16 +459,76 @@ export default function MintPage() {
     }
   }
 
+  async function handleSendWithSecret() {
+    if (!paymentInfo?.agentXrplAddress) {
+      setError('Payment info not available yet. Please wait for the reservation details.');
+      return;
+    }
+    if (!walletSecret.trim()) {
+      setSecretError('Please enter your XRPL wallet secret.');
+      return;
+    }
+
+    try {
+      setSendingPayment(true);
+      setError(null);
+      setSecretError(null);
+
+      // Create wallet from secret
+      let wallet: Wallet;
+      try {
+        wallet = Wallet.fromSeed(walletSecret.trim());
+        console.log('Created wallet from secret:', wallet.classicAddress);
+      } catch (e: any) {
+        setSecretError('Invalid wallet secret. Please check and try again.');
+        setSendingPayment(false);
+        return;
+      }
+
+      // Calculate total XRP needed (valueUBA + feeUBA) - XRP uses 6 decimal places
+      const totalDrops = paymentInfo.valueUBA + paymentInfo.feeUBA;
+      const totalXRP = Number(totalDrops) / 1_000_000;
+      const totalXRPString = totalXRP.toFixed(6);
+
+      console.log('Sending XRP payment with wallet secret:', {
+        from: wallet.classicAddress,
+        to: paymentInfo.agentXrplAddress,
+        amount: totalXRPString,
+        reference: paymentInfo.paymentReference,
+      });
+
+      // Convert payment reference to hex string for memo (remove 0x prefix)
+      const paymentRef = paymentInfo.paymentReference;
+      const memoData = paymentRef.startsWith('0x') ? paymentRef.slice(2) : paymentRef;
+
+      // Send XRP payment
+      const result = await sendXRPPayment(
+        wallet,
+        paymentInfo.agentXrplAddress,
+        totalXRPString,
+        memoData
+      );
+
+      if (result.success && result.txHash) {
+        console.log('Payment successful:', result.txHash);
+        setXrpTxHash(result.txHash);
+        setWalletSecret(''); // Clear the secret for security
+        setStep('wait-fdc');
+      } else {
+        setError(result.error || 'Failed to send XRP payment');
+      }
+    } catch (err: any) {
+      console.error('Failed to send payment:', err);
+      setError(`Failed to send XRP: ${err.message}`);
+    } finally {
+      setSendingPayment(false);
+    }
+  }
+
   async function handleSendXRP() {
     console.log('handleSendXRP called. xrplWallet:', xrplWallet, 'xrplAddress:', xrplAddress);
 
     if (!xrplWallet) {
-      // If no wallet object but we have an address, user needs to send manually
-      if (xrplAddress && paymentInfo) {
-        setError(`Please send ${(Number(paymentInfo.valueUBA + paymentInfo.feeUBA) / 1_000_000).toFixed(6)} XRP manually from ${xrplAddress} to ${paymentInfo.agentXrplAddress} with memo: ${paymentInfo.paymentReference}`);
-      } else {
-        setError('XRPL wallet not connected. Please generate a wallet first.');
-      }
       return;
     }
 
@@ -883,7 +946,9 @@ export default function MintPage() {
                     </div>
                     <h3 className="text-2xl font-bold text-white">Send XRP Payment</h3>
                     <p className="text-gray-400 max-w-sm mx-auto text-sm">
-                      Click the button below to send XRP from your generated wallet to the agent.
+                      {xrplWallet
+                        ? 'Click the button below to send XRP from your generated wallet to the agent.'
+                        : 'Enter your XRPL wallet secret to authorize the payment. The XRP will be sent directly to the agent.'}
                     </p>
                   </div>
 
@@ -919,17 +984,60 @@ export default function MintPage() {
                     </div>
                   )}
 
-                  <Button
-                    onClick={handleSendXRP}
-                    disabled={loading || !paymentInfo?.agentXrplAddress || !xrplAddress}
-                    className="w-full h-16 text-lg font-bold bg-blue-600 hover:bg-blue-500 shadow-xl shadow-blue-500/20 rounded-2xl"
-                  >
-                    {loading ? 'Sending...' : 'Send XRP Now'}
-                  </Button>
-                  {!xrplWallet && xrplAddress && (
-                    <p className="text-yellow-400 text-xs text-center">
-                      Note: Manual wallet address entered. Payment must be sent externally.
-                    </p>
+                  {xrplWallet ? (
+                    <Button
+                      onClick={handleSendXRP}
+                      disabled={loading || !paymentInfo?.agentXrplAddress || !xrplAddress}
+                      className="w-full h-16 text-lg font-bold bg-blue-600 hover:bg-blue-500 shadow-xl shadow-blue-500/20 rounded-2xl"
+                    >
+                      {loading ? 'Sending...' : 'Send XRP Now'}
+                    </Button>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 text-sm text-blue-300">
+                        <p className="font-semibold mb-2">Enter Your Wallet Secret</p>
+                        <p>
+                          Enter your XRPL wallet secret (seed) to authorize the payment. The payment will be sent directly from your wallet.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">XRPL Wallet Secret</Label>
+                        <Input
+                          type="password"
+                          value={walletSecret}
+                          onChange={(e) => {
+                            setWalletSecret(e.target.value);
+                            setSecretError(null);
+                          }}
+                          placeholder="sXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                          className={`bg-gray-800/50 border-gray-700 h-12 pl-4 focus:ring-blue-500 transition-all font-mono ${
+                            secretError ? 'border-red-500' : ''
+                          }`}
+                        />
+                        {secretError && (
+                          <p className="text-red-400 text-xs">{secretError}</p>
+                        )}
+                        <p className="text-xs text-gray-500">
+                          Your secret is used only to sign the transaction and is never stored.
+                        </p>
+                      </div>
+
+                      <Button
+                        onClick={handleSendWithSecret}
+                        disabled={sendingPayment || !walletSecret.trim() || !paymentInfo?.agentXrplAddress}
+                        className="w-full h-14 text-lg font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 shadow-lg shadow-purple-500/20 rounded-2xl"
+                      >
+                        {sendingPayment ? (
+                          <span className="flex items-center gap-2">
+                            <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            Sending Payment...
+                          </span>
+                        ) : (
+                          'Send XRP Payment'
+                        )}
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}
