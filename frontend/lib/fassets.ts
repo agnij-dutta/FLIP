@@ -89,10 +89,12 @@ export const ASSET_MANAGER_ABI = [
       {
         components: [
           { name: 'agentVault', type: 'address' },
+          { name: 'ownerManagementAddress', type: 'address' },
           { name: 'feeBIPS', type: 'uint256' },
+          { name: 'mintingVaultCollateralRatioBIPS', type: 'uint256' },
+          { name: 'mintingPoolCollateralRatioBIPS', type: 'uint256' },
           { name: 'freeCollateralLots', type: 'uint256' },
           { name: 'status', type: 'uint8' },
-          // Note: There may be additional fields in the actual response
         ],
         name: '_agents',
         type: 'tuple[]',
@@ -149,7 +151,10 @@ export const ASSET_MANAGER_ABI = [
 
 export interface AgentInfo {
   agentVault: Address;
+  ownerManagementAddress: Address;
   feeBIPS: bigint;
+  mintingVaultCollateralRatioBIPS: bigint;
+  mintingPoolCollateralRatioBIPS: bigint;
   freeCollateralLots: bigint;
   status: number; // 0 = NORMAL, others = various states (PAUSED, LIQUIDATION, etc.)
 }
@@ -219,53 +224,36 @@ export async function getAvailableAgents(
       return [];
     }
     
-    // Fix: Parse agents correctly - viem might return them in a different format
-    const fixedAgents = agents.map((agent: any) => {
+    // Parse agents with correct field names matching the updated ABI
+    const parsedAgents = agents.map((agent: any) => {
       // Log raw agent data for debugging
       console.log('Raw agent data:', agent);
-      
+
       // Extract fields - handle both object and array formats
       const agentVault = agent.agentVault || agent[0];
-      let feeBIPS = agent.feeBIPS || agent[1];
-      let freeCollateralLots = agent.freeCollateralLots || agent[2];
-      let status = agent.status || agent[3];
-      
-      // Convert bigint to number if needed
-      if (typeof feeBIPS === 'bigint') feeBIPS = Number(feeBIPS);
-      if (typeof freeCollateralLots === 'bigint') freeCollateralLots = Number(freeCollateralLots);
-      if (typeof status === 'bigint') status = Number(status);
-      
-      // Status should be uint8 (0-255). If it's larger, it's likely reading the wrong field
-      // Common issue: reading freeCollateralLots or a larger field as status
-      // If status is clearly wrong (like 20000), assume it's a parsing error and default to 0
-      if (status > 255 || status === 20000 || status === 25) {
-        console.warn('Status value seems wrong:', status, '- treating as 0 (NORMAL). Raw agent:', agent);
-        status = 0; // Default to NORMAL if parsing is wrong
-      }
-      
-      // FeeBIPS sanity check - should be reasonable (e.g., 0-10000 for 0-100%)
-      // If fee is astronomical, it's likely reading the wrong field
-      if (feeBIPS > 1000000 || feeBIPS < 0) {
-        console.warn('FeeBIPS seems invalid:', feeBIPS, '- treating as 0%. Raw agent:', agent);
-        feeBIPS = 0; // Default to 0% if parsing is clearly wrong
-      }
-      
-      // FreeCollateralLots sanity check
-      if (freeCollateralLots < 0 || freeCollateralLots > 1000000) {
-        console.warn('FreeCollateralLots seems invalid:', freeCollateralLots, '- Raw agent:', agent);
-        freeCollateralLots = 0;
-      }
-      
+      const ownerManagementAddress = agent.ownerManagementAddress || agent[1];
+      const feeBIPS = agent.feeBIPS ?? agent[2];
+      const mintingVaultCollateralRatioBIPS = agent.mintingVaultCollateralRatioBIPS ?? agent[3];
+      const mintingPoolCollateralRatioBIPS = agent.mintingPoolCollateralRatioBIPS ?? agent[4];
+      const freeCollateralLots = agent.freeCollateralLots ?? agent[5];
+      const status = agent.status ?? agent[6];
+
+      // Convert to appropriate types
+      const statusNum = typeof status === 'bigint' ? Number(status) : Number(status || 0);
+
       return {
         agentVault,
-        feeBIPS: BigInt(Math.floor(feeBIPS)),
-        freeCollateralLots: BigInt(Math.floor(freeCollateralLots)),
-        status: status & 0xFF, // Ensure uint8 range
+        ownerManagementAddress,
+        feeBIPS: BigInt(feeBIPS || 0),
+        mintingVaultCollateralRatioBIPS: BigInt(mintingVaultCollateralRatioBIPS || 0),
+        mintingPoolCollateralRatioBIPS: BigInt(mintingPoolCollateralRatioBIPS || 0),
+        freeCollateralLots: BigInt(freeCollateralLots || 0),
+        status: statusNum & 0xFF, // Ensure uint8 range
       };
     });
-    
-    console.log('Fixed agents:', fixedAgents);
-    return fixedAgents as AgentInfo[];
+
+    console.log('Parsed agents:', parsedAgents);
+    return parsedAgents as AgentInfo[];
   } catch (error: any) {
     console.error('Error loading agents:', error);
     // If contract doesn't exist or function fails, return empty array

@@ -234,3 +234,41 @@ export function createWalletFromSeed(seed: string): Wallet {
   return Wallet.fromSeed(seed);
 }
 
+/**
+ * Generate a new XRPL testnet wallet and fund it from the faucet
+ */
+export async function generateAndFundTestnetWallet(): Promise<{
+  wallet: Wallet;
+  balance: string;
+  funded: boolean;
+  error?: string;
+}> {
+  const client = await connectXRPLClient();
+
+  try {
+    // Generate a new wallet
+    const wallet = Wallet.generate();
+    console.log('Generated new testnet wallet:', wallet.classicAddress);
+
+    // Fund the wallet from the testnet faucet
+    const fundResult = await client.fundWallet(wallet);
+    console.log('Funded wallet from faucet:', fundResult);
+
+    return {
+      wallet: fundResult.wallet,
+      balance: String(dropsToXrp(fundResult.balance.toString())),
+      funded: true,
+    };
+  } catch (error: any) {
+    console.error('Failed to generate/fund testnet wallet:', error);
+    return {
+      wallet: Wallet.generate(), // Return unfunded wallet
+      balance: '0',
+      funded: false,
+      error: error.message || 'Failed to fund wallet from faucet',
+    };
+  } finally {
+    await client.disconnect();
+  }
+}
+

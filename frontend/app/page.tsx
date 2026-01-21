@@ -7,7 +7,7 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gray-900 text-white">
+    <main className="min-h-screen bg-gradient-to-b from-[#0b0f1f] via-black to-black text-white selection:bg-purple-500/30">
       {/* Header */}
       <Header />
       
@@ -18,7 +18,7 @@ export default function Home() {
       <FeaturesSection />
 
       {/* Footer with FDC message */}
-      <footer className="bg-gray-950 border-t border-gray-800 py-8">
+      <footer className="bg-black/40 border-t border-gray-800/60 py-8">
         <div className="container mx-auto px-4 text-center">
           <p className="text-gray-400 mb-4">
             🔒 <strong className="text-white">FDC is the final judge.</strong> FLIP only changes when users get paid.
