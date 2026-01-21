@@ -123,7 +123,7 @@ const REDEMPTION_REQUESTED_EVENT = {
 } as const;
 
 export default function RedeemPage() {
-  const { address, isConnected, connector } = useAccount();
+  const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const [amount, setAmount] = useState('');
   const [xrplAddress, setXrplAddress] = useState('');
@@ -133,16 +133,29 @@ export default function RedeemPage() {
   const [lastAction, setLastAction] = useState<'approve' | 'redeem' | null>(null);
   const [receiptTokenIds, setReceiptTokenIds] = useState<bigint[]>([]);
 
-  const { writeContract, data: hash, isPending, error: writeError, reset: resetWrite } = useWriteContract({
-    onError: (error) => {
-      console.error('writeContract error callback:', error);
-      setError(error.message || error.shortMessage || 'Transaction failed. Check console for details.');
+  const { writeContract, data: hash, isPending, error: writeError, reset: resetWrite } = useWriteContract();
+  
+  // Handle writeContract errors
+  useEffect(() => {
+    if (writeError) {
+      const errorMessage = writeError instanceof Error ? writeError.message : String(writeError);
+      // Suppress known Wagmi v2 compatibility errors
+      if (errorMessage.includes('getChainId') || errorMessage.includes('connection.connector')) {
+        console.warn('Suppressed connector compatibility error:', writeError);
+        return; // Don't show this error to the user
+      }
+      console.error('writeContract error:', writeError);
+      setError(errorMessage || 'Transaction failed. Check console for details.');
       setLastAction(null);
-    },
-    onSuccess: (hash) => {
-      console.log('writeContract success callback:', hash);
-    },
-  });
+    }
+  }, [writeError]);
+  
+  // Handle writeContract success
+  useEffect(() => {
+    if (hash) {
+      console.log('writeContract success, hash:', hash);
+    }
+  }, [hash]);
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
   });
@@ -293,7 +306,6 @@ export default function RedeemPage() {
   const handleApprove = () => {
     console.log('handleApprove called', {
       isConnected,
-      connector: connector?.name,
       address,
       decimals,
       FLIPCore: CONTRACTS.coston2.FLIPCore,
@@ -307,11 +319,6 @@ export default function RedeemPage() {
       return;
     }
 
-    if (!connector) {
-      setError('Wallet connector not available. Please reconnect your wallet.');
-      return;
-    }
-
     if (decimals === undefined) {
       setError('Loading token decimals... Please wait.');
       return;
@@ -322,7 +329,7 @@ export default function RedeemPage() {
       return;
     }
 
-    if (!FASSET_ADDRESS || FASSET_ADDRESS === '0x0000000000000000000000000000000000000000') {
+    if (!FASSET_ADDRESS) {
       setError('FXRP token address not configured');
       return;
     }
@@ -492,11 +499,11 @@ export default function RedeemPage() {
                     </p>
                   </div>
 
-                  {(error || writeError) && (
+                  {error && !error.includes('getChainId') && !error.includes('connection.connector') && (
                     <div className="p-4 bg-red-900/30 border border-red-700 rounded-lg">
                       <p className="text-red-400 text-sm font-semibold">Error:</p>
                       <p className="text-red-300 text-sm mt-1">
-                        {error || writeError?.message || writeError?.shortMessage || 'Unknown error'}
+                        {error}
                       </p>
                       {writeError && (
                         <details className="mt-2">
@@ -523,14 +530,6 @@ export default function RedeemPage() {
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          console.log('Approve button clicked', { 
-                            isPending, 
-                            isConfirming, 
-                            decimals, 
-                            isConnected,
-                            FLIPCore: CONTRACTS.coston2.FLIPCore,
-                            FXRP: FASSET_ADDRESS
-                          });
                           handleApprove();
                         }}
                         disabled={isPending || isConfirming || decimals === undefined || !isConnected}

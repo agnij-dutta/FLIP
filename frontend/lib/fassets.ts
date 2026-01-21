@@ -208,7 +208,7 @@ export async function getAvailableAgents(
       agents = (result as any)._agents || [];
     } else if (Array.isArray(result)) {
       // Array output (positional)
-      agents = result[0] || [];
+      agents = (result[0] || []) as AgentInfo[];
     } else {
       console.error('Unexpected agents response format:', result);
       return [];

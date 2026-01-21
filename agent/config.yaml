@@ -4,8 +4,8 @@
 flare:
   rpc_url: "https://coston2-api.flare.network/ext/C/rpc"
   chain_id: 114
-  flip_core_address: "0x192E107c9E1adAbf7d01624AFa158d10203F8DAB"
-  escrow_vault_address: "0x62ACcaF2A09Ae5d6d8E4A92104d1Cd16430146B4"
+  flip_core_address: "0x162Ba31F4868eF67F3B4dA6fb454e47685c5CF15"
+  escrow_vault_address: "0x414319C341F9f63e92652ee5e2B1231E675F455e"
 
 # XRPL Configuration
 xrpl:

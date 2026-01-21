@@ -13,7 +13,7 @@ export function TextScramble({ text, className = "" }: TextScrambleProps) {
   const [displayText, setDisplayText] = useState(text)
   const [isHovering, setIsHovering] = useState(false)
   const [isScrambling, setIsScrambling] = useState(false)
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const frameRef = useRef(0)
 
   const scramble = useCallback(() => {

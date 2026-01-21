@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -27,23 +30,23 @@ type EscrowCreatedEvent struct {
 
 // RedemptionData represents redemption struct from FLIPCore
 type RedemptionData struct {
-	User             common.Address
-	Asset            common.Address
-	Amount           *big.Int
-	RequestedAt      *big.Int
-	PriceLocked      *big.Int
-	HedgeID          *big.Int
-	Status           uint8
-	FDCRequestID     *big.Int
+	User               common.Address
+	Asset              common.Address
+	Amount             *big.Int
+	RequestedAt        *big.Int
+	PriceLocked        *big.Int
+	HedgeID            *big.Int
+	Status             uint8
+	FDCRequestID       *big.Int
 	ProvisionalSettled bool
-	XRPLAddress      string
+	XRPLAddress        string
 }
 
 // EventMonitor monitors FLIPCore for EscrowCreated events
 type EventMonitor struct {
-	client      *ethclient.Client
-	flipCore    common.Address
-	lastBlock   uint64
+	client       *ethclient.Client
+	flipCore     common.Address
+	lastBlock    uint64
 	pollInterval time.Duration
 }
 
@@ -60,10 +63,17 @@ func NewEventMonitor(config *Config) (*EventMonitor, error) {
 		return nil, fmt.Errorf("failed to get block number: %w", err)
 	}
 
+	// Start slightly behind head to avoid missing events around startup.
+	// This is safe because we only act on EscrowCreated once per redemptionId.
+	startBlock := blockNumber
+	if startBlock > 50 {
+		startBlock = startBlock - 50
+	}
+
 	return &EventMonitor{
-		client:      client,
-		flipCore:    common.HexToAddress(config.Flare.FLIPCoreAddress),
-		lastBlock:   blockNumber,
+		client:       client,
+		flipCore:     common.HexToAddress(config.Flare.FLIPCoreAddress),
+		lastBlock:    startBlock,
 		pollInterval: time.Duration(config.Agent.PollingInterval) * time.Second,
 	}, nil
 }
@@ -172,22 +182,73 @@ func (em *EventMonitor) parseEscrowCreatedEvent(vLog types.Log) (*EscrowCreatedE
 
 // getXRPLAddressFromRedemption queries FLIPCore to get XRPL address for redemption
 func (em *EventMonitor) getXRPLAddressFromRedemption(ctx context.Context, redemptionID *big.Int) (string, error) {
-	// FLIPCore.redemptions(uint256) returns:
-	// (address user, address asset, uint256 amount, uint256 requestedAt, uint256 priceLocked,
-	//  uint256 hedgeId, uint8 status, uint256 fdcRequestId, bool provisionalSettled, string xrplAddress)
-	
-	// TODO: Call FLIPCore.redemptions(redemptionID) to get xrplAddress
-	// For now, return placeholder - will be implemented with contract binding
-	// In production, use go-ethereum contract binding:
-	// flipCore, _ := bind.NewBoundContract(em.flipCore, abi, em.client, em.client, em.client)
-	// var result struct {
-	//     XRPLAddress string
-	// }
-	// err := flipCore.Call(nil, &result, "redemptions", redemptionID)
-	// return result.XRPLAddress, err
+	// Minimal ABI for FLIPCore.redemptions(uint256) including xrplAddress string.
+	const flipCoreABIJSON = `[
+		{
+			"inputs":[{"name":"_redemptionId","type":"uint256"}],
+			"name":"redemptions",
+			"outputs":[
+				{"name":"user","type":"address"},
+				{"name":"asset","type":"address"},
+				{"name":"amount","type":"uint256"},
+				{"name":"requestedAt","type":"uint256"},
+				{"name":"priceLocked","type":"uint256"},
+				{"name":"hedgeId","type":"uint256"},
+				{"name":"status","type":"uint8"},
+				{"name":"fdcRequestId","type":"uint256"},
+				{"name":"provisionalSettled","type":"bool"},
+				{"name":"xrplAddress","type":"string"}
+			],
+			"stateMutability":"view",
+			"type":"function"
+		}
+	]`
 
-	// Placeholder - will be implemented
-	return "", fmt.Errorf("XRPL address query not yet implemented - needs contract binding")
+	parsed, err := abi.JSON(strings.NewReader(flipCoreABIJSON))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse FLIPCore ABI: %w", err)
+	}
+
+	data, err := parsed.Pack("redemptions", redemptionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack redemptions call: %w", err)
+	}
+
+	callMsg := ethereum.CallMsg{
+		To:   &em.flipCore,
+		Data: data,
+	}
+
+	raw, err := em.client.CallContract(ctx, callMsg, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to call FLIPCore.redemptions: %w", err)
+	}
+
+	// Unpack into a generic slice; xrplAddress is index 9.
+	out, err := parsed.Unpack("redemptions", raw)
+	if err != nil {
+		// Helpful context when ABI mismatches
+		return "", fmt.Errorf("failed to unpack redemptions result (len=%d): %w", len(raw), err)
+	}
+	if len(out) != 10 {
+		return "", fmt.Errorf("unexpected redemptions output length: %d", len(out))
+	}
+
+	xrpl, ok := out[9].(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected xrplAddress type: %T", out[9])
+	}
+
+	// Be defensive about potential null padding.
+	xrpl = strings.Trim(xrpl, "\x00")
+	xrpl = strings.TrimSpace(xrpl)
+	if xrpl == "" {
+		return "", fmt.Errorf("xrplAddress is empty for redemptionId=%s", redemptionID.String())
+	}
+	// Avoid accidental leading nulls from some decoders.
+	xrpl = string(bytes.Trim([]byte(xrpl), "\x00"))
+
+	return xrpl, nil
 }
 
 // generatePaymentReference generates a payment reference from redemption data
@@ -198,4 +259,3 @@ func generatePaymentReference(redemptionID *big.Int) string {
 	// In production, this should match FLIPCore's payment reference generation exactly
 	return fmt.Sprintf("%064x", redemptionID)
 }
-
