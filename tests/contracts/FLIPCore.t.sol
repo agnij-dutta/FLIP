@@ -24,8 +24,8 @@ contract FLIPCoreTest is Test {
     MockStateConnector public stateConnector;
     MockFAsset public fAsset;
 
-    address public user = address(0x1);
-    address public operator = address(0x2);
+    address public user = address(0x1001); // Use non-precompile address
+    address public operator = address(0x2002);
 
     function setUp() public {
         // Deploy mocks
@@ -80,7 +80,8 @@ contract FLIPCoreTest is Test {
         // User must approve or have balance
         vm.startPrank(user);
         fAsset.mint(user, amount); // Ensure user has tokens
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount); // Approve FLIPCore to spend
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         assertEq(redemptionId, 0, "First redemption should be ID 0");
@@ -96,7 +97,8 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Calculate score parameters (high confidence scenario)
@@ -129,7 +131,8 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Test evaluation with high confidence parameters
@@ -154,7 +157,8 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Test evaluation with low confidence parameters
@@ -179,7 +183,8 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Low confidence parameters
@@ -203,7 +208,8 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Finalize provisional with high confidence parameters
@@ -231,12 +237,17 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Finalize provisional
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
 
         // FDC confirms success
         vm.prank(operator);
@@ -254,12 +265,17 @@ contract FLIPCoreTest is Test {
         
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // Finalize provisional
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for timeout release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
 
         // Fast forward past timeout
         vm.warp(block.timestamp + 601); // 601 seconds > 600 timeout

@@ -14,7 +14,7 @@ import {IFtsoRegistry} from "../contracts/interfaces/IFtsoRegistry.sol";
 contract TestCoston2 is Script {
     // Deployed contract addresses (from COSTON2_DEPLOYED_ADDRESSES.md)
     address constant FLIP_CORE = 0x406B2ec53e2e01f9E9D056D98295d0cf61694279;
-    address constant ESCROW_VAULT = 0xAF16AdAE0A157C92e2B173F2579e1f063A7aABE7;
+    address payable constant ESCROW_VAULT = payable(0xAF16AdAE0A157C92e2B173F2579e1f063A7aABE7);
     address constant SETTLEMENT_RECEIPT = 0x02A56612A4D8D7ae38BD577Be3222D26a4846032;
     address constant LP_REGISTRY = 0x0Ec47da13c178f85edd078Cc7d2e775De5e88813;
     address constant OPERATOR_REGISTRY = 0x6420808b3444aC0Ae9adAAf97d2Be5Ac8e6a9b02;

@@ -83,7 +83,7 @@ export default function RadialOrbitalTimeline({
   };
 
   useEffect(() => {
-    let rotationTimer: NodeJS.Timeout;
+    let rotationTimer: ReturnType<typeof setInterval>;
 
     if (autoRotate && viewMode === "orbital") {
       rotationTimer = setInterval(() => {

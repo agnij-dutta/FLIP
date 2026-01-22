@@ -235,17 +235,39 @@ sequenceDiagram
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Escrow Model](docs/ESCROW_MODEL.md)
-- [Liquidity Provider Guide](docs/LIQUIDITY_PROVIDER_GUIDE.md)
-- [Mathematical Proofs](docs/MATHEMATICAL_PROOFS.md)
-- [Worst-Case Scenarios](docs/WORST_CASE_SCENARIOS.md)
-- [Pause Functionality](docs/PAUSE_FUNCTIONALITY.md)
-- [Contract Specifications](docs/contract-specs.md)
-- [Security Audit Plan](docs/security-audit-plan.md)
-- [FTSO Integration](docs/ftso-spec.md)
-- [FDC Integration](docs/fdc-spec.md)
-- [FAssets Integration](docs/fassets-spec.md)
+### Master Documents
+
+- **[Implementation Checkpoint](docs/IMPLEMENTATION_CHECKPOINT.md)** - Comprehensive checkpoint of current implementation, cross-referencing plans
+- **[Architecture](docs/architecture.md)** - Complete system architecture and design
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Complete deployment and setup instructions
+
+### Core Documentation
+
+- **[Escrow Model](docs/ESCROW_MODEL.md)** - Escrow-based conditional settlement model
+- **[Liquidity Provider Guide](docs/LIQUIDITY_PROVIDER_GUIDE.md)** - How to become an LP and earn fees
+- **[Mathematical Proofs](docs/MATHEMATICAL_PROOFS.md)** - Complete theoretical foundation
+- **[Worst-Case Scenarios](docs/WORST_CASE_SCENARIOS.md)** - Safety analysis and edge cases
+- **[Pause Functionality](docs/PAUSE_FUNCTIONALITY.md)** - Emergency pause mechanism
+
+### Technical Specifications
+
+- **[Contract Specifications](docs/contract-specs.md)** - All contract interfaces and ABIs
+- **[FTSO Integration](docs/ftso-spec.md)** - Flare FTSO price feed integration
+- **[FDC Integration](docs/fdc-spec.md)** - Flare State Connector integration
+- **[FAssets Integration](docs/fassets-spec.md)** - Flare FAssets integration
+
+### Setup & Testing
+
+- **[Quick Start](QUICK_START.md)** - 5-minute test setup
+- **[Run Instructions](RUN_INSTRUCTIONS.md)** - Complete step-by-step guide
+- **[Frontend Setup](FRONTEND_SETUP.md)** - Frontend development setup
+- **[Testing Guide](TESTING_GUIDE.md)** - Comprehensive testing procedures
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Deployment and configuration
+
+### Reference
+
+- **[Deployed Addresses](COSTON2_DEPLOYED_ADDRESSES.md)** - Current Coston2 deployment addresses
+- **[Security Audit Plan](docs/security-audit-plan.md)** - Security audit requirements
 
 ## Project Structure
 

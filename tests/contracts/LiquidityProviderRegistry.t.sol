@@ -3,20 +3,28 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import "../../contracts/LiquidityProviderRegistry.sol";
+import "../../contracts/EscrowVault.sol";
 
 contract LiquidityProviderRegistryTest is Test {
     LiquidityProviderRegistry public lpRegistry;
     
-    address public lp1 = address(0x1);
-    address public lp2 = address(0x2);
-    address public asset = address(0x3);
+    address public lp1 = address(0x1001); // Use non-precompile addresses
+    address public lp2 = address(0x2002);
+    address public asset = address(0x3003);
+    
+    EscrowVault public escrowVault;
     
     function setUp() public {
         lpRegistry = new LiquidityProviderRegistry();
+        escrowVault = new EscrowVault();
         
         // Set FLIPCore
         vm.prank(address(lpRegistry.owner()));
         lpRegistry.setFLIPCore(address(this));
+        
+        // Set EscrowVault
+        vm.prank(address(lpRegistry.owner()));
+        lpRegistry.setEscrowVault(address(escrowVault));
         
         vm.deal(lp1, 10000 ether);
         vm.deal(lp2, 10000 ether);

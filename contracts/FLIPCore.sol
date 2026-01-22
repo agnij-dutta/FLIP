@@ -14,9 +14,12 @@ import "./Pausable.sol";
 
 /**
  * @title FLIPCore
- * @notice Main redemption handler with provisional settlement logic
- * @dev Coordinates redemption flow: user request → FTSO price lock → Oracle prediction → 
+ * @notice Bidirectional settlement handler for both minting (XRP→FXRP) and redemption (FXRP→XRP)
+ * @dev Coordinates flows: user request → FTSO price lock → Deterministic scoring →
  *      Provisional settlement → FDC finalization
+ *
+ * CORE INVARIANT: FLIP never finalizes value without FDC confirmation.
+ * ∀ operation O: Finalize(O) ⟹ FDC(O) = true
  */
 contract FLIPCore is Pausable {
     // Dependencies
@@ -39,6 +42,7 @@ contract FLIPCore is Pausable {
         RedemptionStatus status;
         uint256 fdcRequestId; // For matching FDC attestations
         bool provisionalSettled;
+        string xrplAddress; // XRPL address where user wants to receive XRP
     }
 
     enum RedemptionStatus {
@@ -54,12 +58,47 @@ contract FLIPCore is Pausable {
     mapping(uint256 => Redemption) public redemptions;
     uint256 public nextRedemptionId;
 
+    // Track XRPL payments to prevent double-paying
+    mapping(uint256 => string) public redemptionXrplTxHash;
+
+    // ============ MINTING STATE ============
+
+    struct MintingRequest {
+        address user;
+        address asset;                    // FXRP token address
+        uint256 collateralReservationId;  // From FAssets AssetManager
+        string xrplTxHash;                // XRPL payment tx hash
+        uint256 xrpAmount;                // Amount in drops (1 XRP = 1,000,000 drops)
+        uint256 fxrpAmount;               // Equivalent FXRP amount (calculated from price)
+        uint256 requestedAt;
+        uint256 priceLocked;              // FTSO price at request time
+        uint256 hedgeId;                  // PriceHedgePool hedge ID
+        MintingStatus status;
+        uint256 fdcRequestId;             // FDC attestation request ID
+        address matchedLP;                // LP who provided FXRP (address(0) if none)
+        uint256 haircutRate;              // Haircut rate applied (scaled: 1000000 = 100%)
+        bool userAuthorizedFlip;          // User grants FLIP permission to execute minting
+    }
+
+    enum MintingStatus {
+        Pending,            // Awaiting evaluation
+        ProvisionalSettled, // LP provided FXRP, waiting for FDC
+        QueuedForFDC,       // Low confidence, waiting for FDC
+        Finalized,          // FDC confirmed success
+        Failed,             // FDC confirmed failure
+        Timeout             // FDC timeout
+    }
+
+    mapping(uint256 => MintingRequest) public mintingRequests;
+    uint256 public nextMintingId;
+
     // Events
     event RedemptionRequested(
         uint256 indexed redemptionId,
         address indexed user,
         address indexed asset,
         uint256 amount,
+        string xrplAddress,
         uint256 timestamp
     );
 
@@ -70,7 +109,12 @@ contract FLIPCore is Pausable {
         uint256 amount,
         uint256 timestamp
     );
-    
+
+    event XrplPaymentRecorded(
+        uint256 indexed redemptionId,
+        string xrplTxHash
+    );
+
     event ReceiptRedeemed(
         uint256 indexed redemptionId,
         uint256 indexed receiptId,
@@ -98,9 +142,46 @@ contract FLIPCore is Pausable {
         uint256 timestamp
     );
 
+    // ============ MINTING EVENTS ============
+
+    event MintingRequested(
+        uint256 indexed mintingId,
+        address indexed user,
+        address indexed asset,
+        uint256 collateralReservationId,
+        string xrplTxHash,
+        uint256 xrpAmount,
+        uint256 fxrpAmount,
+        uint256 timestamp
+    );
+
+    event MintingProvisionalSettled(
+        uint256 indexed mintingId,
+        address indexed user,
+        address indexed lp,
+        uint256 fxrpAmount,
+        uint256 haircutRate,
+        uint256 timestamp
+    );
+
+    event MintingFinalized(
+        uint256 indexed mintingId,
+        bool success,
+        uint256 timestamp
+    );
+
+    event MintingFailed(
+        uint256 indexed mintingId,
+        uint256 timestamp
+    );
+
     // Modifiers
     modifier onlyOperator() {
-        require(operatorRegistry.isOperator(msg.sender), "FLIPCore: not operator");
+        // Allow owner to bypass operator check for testing
+        require(
+            operatorRegistry.isOperator(msg.sender) || msg.sender == owner,
+            "FLIPCore: not operator or owner"
+        );
         _;
     }
 
@@ -115,7 +196,7 @@ contract FLIPCore is Pausable {
     ) {
         ftsoRegistry = IFtsoRegistry(_ftsoRegistry);
         stateConnector = IStateConnector(_stateConnector);
-        escrowVault = EscrowVault(_escrowVault);
+        escrowVault = EscrowVault(payable(_escrowVault));
         settlementReceipt = SettlementReceipt(_settlementReceipt);
         lpRegistry = LiquidityProviderRegistry(_lpRegistry);
         priceHedgePool = PriceHedgePool(_priceHedgePool);
@@ -127,9 +208,10 @@ contract FLIPCore is Pausable {
      * @notice Request redemption of FAsset tokens
      * @param _amount Amount of FAsset to redeem
      * @param _asset FAsset contract address
+     * @param _xrplAddress XRPL address where user wants to receive XRP
      * @return redemptionId Unique redemption ID
      */
-    function requestRedemption(uint256 _amount, address _asset)
+    function requestRedemption(uint256 _amount, address _asset, string memory _xrplAddress)
         external
         whenNotPaused
         returns (uint256 redemptionId)
@@ -171,10 +253,11 @@ contract FLIPCore is Pausable {
             hedgeId: hedgeId,
             status: RedemptionStatus.Pending,
             fdcRequestId: 0, // Will be set when FDC attestation arrives
-            provisionalSettled: false
+            provisionalSettled: false,
+            xrplAddress: _xrplAddress
         });
 
-        emit RedemptionRequested(redemptionId, msg.sender, _asset, _amount, block.timestamp);
+        emit RedemptionRequested(redemptionId, msg.sender, _asset, _amount, _xrplAddress, block.timestamp);
         
         return redemptionId;
     }
@@ -284,7 +367,9 @@ contract FLIPCore is Pausable {
         );
         
         // Create escrow (LP-funded or user-wait path)
-        escrowVault.createEscrow(
+        // For LP-funded escrows, funds are already transferred by matchLiquidity
+        // For user-wait escrows, no funds needed (just a record)
+        escrowVault.createEscrow{value: 0}(
             _redemptionId,
             redemption.user,
             lpAddress,
@@ -313,6 +398,126 @@ contract FLIPCore is Pausable {
             redemption.amount,
             block.timestamp
         );
+    }
+
+    /**
+     * @notice Owner-only function to process redemptions (for testing)
+     * @dev Allows owner to process redemptions without operator status
+     * @param _redemptionId Redemption ID
+     * @param _priceVolatility Current price volatility (scaled: 1000000 = 100%)
+     * @param _agentSuccessRate Agent historical success rate (scaled: 1000000 = 100%)
+     * @param _agentStake Agent stake amount
+     */
+    function ownerProcessRedemption(
+        uint256 _redemptionId,
+        uint256 _priceVolatility,
+        uint256 _agentSuccessRate,
+        uint256 _agentStake
+    )
+        external
+        onlyOwner
+    {
+        // Reuse the same logic as finalizeProvisional
+        Redemption storage redemption = redemptions[_redemptionId];
+        require(
+            redemption.status == RedemptionStatus.Pending,
+            "FLIPCore: invalid status"
+        );
+
+        // Get current hour (0-23)
+        uint256 hourOfDay = (block.timestamp / 3600) % 24;
+
+        // Calculate deterministic score
+        DeterministicScoring.ScoringParams memory params = DeterministicScoring.ScoringParams({
+            priceVolatility: _priceVolatility,
+            amount: redemption.amount,
+            agentSuccessRate: _agentSuccessRate,
+            agentStake: _agentStake,
+            hourOfDay: hourOfDay
+        });
+
+        DeterministicScoring.ScoreResult memory result = DeterministicScoring.calculateScore(params);
+        
+        // Require high confidence for provisional settlement
+        require(
+            result.canProvisionalSettle,
+            "FLIPCore: score too low for provisional settlement"
+        );
+
+        // Calculate suggested haircut from score
+        uint256 suggestedHaircut = DeterministicScoring.calculateSuggestedHaircut(result);
+        
+        // Try to match liquidity provider
+        (address matchedLP, uint256 availableAmount) = lpRegistry.matchLiquidity(
+            redemption.asset,
+            redemption.amount,
+            suggestedHaircut
+        );
+        
+        // Determine if LP funding is available and get final haircut
+        (bool lpFunded, address lpAddress, uint256 finalHaircut) = _determineLiquidityAndHaircut(
+            matchedLP,
+            availableAmount,
+            redemption.amount,
+            redemption.asset,
+            suggestedHaircut
+        );
+        
+        // Create escrow (LP-funded or user-wait path)
+        escrowVault.createEscrow{value: 0}(
+            _redemptionId,
+            redemption.user,
+            lpAddress,
+            redemption.asset,
+            redemption.amount,
+            lpFunded
+        );
+        
+        // Mint settlement receipt
+        uint256 receiptId = settlementReceipt.mintReceipt(
+            redemption.user,
+            _redemptionId,
+            redemption.asset,
+            redemption.amount,
+            finalHaircut,
+            lpAddress
+        );
+
+        redemption.status = RedemptionStatus.EscrowCreated;
+        redemption.provisionalSettled = true;
+
+        emit EscrowCreated(
+            _redemptionId,
+            redemption.user,
+            receiptId,
+            redemption.amount,
+            block.timestamp
+        );
+    }
+
+    /**
+     * @notice Record XRPL payment tx hash (prevents double-payment on agent restart)
+     * @param _redemptionId Redemption ID
+     * @param _xrplTxHash XRPL transaction hash
+     */
+    function recordXrplPayment(
+        uint256 _redemptionId,
+        string calldata _xrplTxHash
+    ) external onlyOperator {
+        Redemption storage redemption = redemptions[_redemptionId];
+        require(
+            redemption.status == RedemptionStatus.EscrowCreated,
+            "FLIPCore: invalid status"
+        );
+        require(
+            bytes(redemptionXrplTxHash[_redemptionId]).length == 0,
+            "FLIPCore: payment already recorded"
+        );
+        require(bytes(_xrplTxHash).length > 0, "FLIPCore: empty tx hash");
+
+        redemptionXrplTxHash[_redemptionId] = _xrplTxHash;
+
+        emit XrplPaymentRecorded(_redemptionId, _xrplTxHash);
     }
 
     /**
@@ -500,13 +705,327 @@ contract FLIPCore is Pausable {
     ) internal view returns (bool lpFunded, address lpAddress, uint256 finalHaircut) {
         lpFunded = (matchedLP != address(0) && availableAmount >= requiredAmount);
         lpAddress = lpFunded ? matchedLP : address(0);
-        
+
         // If LP matched, use LP's minHaircut; otherwise use suggested haircut
         finalHaircut = suggestedHaircut;
         if (lpFunded) {
             LiquidityProviderRegistry.LPPosition memory lpPos = lpRegistry.getPosition(matchedLP, asset);
             finalHaircut = lpPos.minHaircut;
         }
+    }
+
+    // ============ MINTING FUNCTIONS ============
+
+    /**
+     * @notice Request minting with FLIP instant settlement
+     * @dev User has already sent XRP on XRPL and reserved collateral with FAssets
+     * @param _collateralReservationId FAssets collateral reservation ID
+     * @param _xrplTxHash XRPL payment transaction hash
+     * @param _xrpAmount Amount of XRP sent (in drops)
+     * @param _asset FXRP token address
+     * @param _authorizeFlipExecution Whether user authorizes FLIP to execute minting on their behalf
+     * @return mintingId Unique minting request ID
+     */
+    function requestMinting(
+        uint256 _collateralReservationId,
+        string memory _xrplTxHash,
+        uint256 _xrpAmount,
+        address _asset,
+        bool _authorizeFlipExecution
+    ) external whenNotPaused returns (uint256 mintingId) {
+        require(_xrpAmount > 0, "FLIPCore: amount must be > 0");
+        require(_asset != address(0), "FLIPCore: invalid asset");
+        require(bytes(_xrplTxHash).length > 0, "FLIPCore: invalid tx hash");
+
+        // Calculate FXRP amount from XRP amount
+        // XRP has 6 decimal places (drops), FXRP typically has 18
+        // Use price oracle to convert - for now assume 1:1 with decimal adjustment
+        uint256 fxrpAmount = _xrpAmount * 1e12; // Convert 6 decimals to 18 decimals
+
+        // Lock price via PriceHedgePool
+        (uint256 lockedPrice, uint256 hedgeId) = priceHedgePool.lockPrice(_asset, fxrpAmount);
+
+        mintingId = nextMintingId++;
+
+        mintingRequests[mintingId] = MintingRequest({
+            user: msg.sender,
+            asset: _asset,
+            collateralReservationId: _collateralReservationId,
+            xrplTxHash: _xrplTxHash,
+            xrpAmount: _xrpAmount,
+            fxrpAmount: fxrpAmount,
+            requestedAt: block.timestamp,
+            priceLocked: lockedPrice,
+            hedgeId: hedgeId,
+            status: MintingStatus.Pending,
+            fdcRequestId: 0,
+            matchedLP: address(0),
+            haircutRate: 0,
+            userAuthorizedFlip: _authorizeFlipExecution
+        });
+
+        emit MintingRequested(
+            mintingId,
+            msg.sender,
+            _asset,
+            _collateralReservationId,
+            _xrplTxHash,
+            _xrpAmount,
+            fxrpAmount,
+            block.timestamp
+        );
+
+        return mintingId;
+    }
+
+    /**
+     * @notice Evaluate minting confidence
+     * @param _mintingId Minting request ID
+     * @param _priceVolatility Current FTSO price volatility
+     * @return decision 0=QueueFDC, 1=FastLane
+     * @return score Confidence score (scaled: 1000000 = 100%)
+     */
+    function evaluateMinting(
+        uint256 _mintingId,
+        uint256 _priceVolatility
+    ) external view returns (uint8 decision, uint256 score) {
+        MintingRequest storage request = mintingRequests[_mintingId];
+        require(request.status == MintingStatus.Pending, "FLIPCore: invalid status");
+
+        // Get current hour (0-23)
+        uint256 hourOfDay = (block.timestamp / 3600) % 24;
+
+        // Use same deterministic scoring as redemption
+        DeterministicScoring.ScoringParams memory params = DeterministicScoring.ScoringParams({
+            priceVolatility: _priceVolatility,
+            amount: request.fxrpAmount,
+            agentSuccessRate: 990000, // 99% default for FAssets agents
+            agentStake: 200000 ether, // Default stake assumption
+            hourOfDay: hourOfDay
+        });
+
+        DeterministicScoring.ScoreResult memory result = DeterministicScoring.calculateScore(params);
+
+        decision = DeterministicScoring.makeDecision(result);
+        score = result.score;
+    }
+
+    /**
+     * @notice Finalize minting provisional settlement
+     * @dev Matches LP with FXRP liquidity and transfers to user instantly
+     * @param _mintingId Minting request ID
+     * @param _priceVolatility Current price volatility
+     */
+    function finalizeMintingProvisional(
+        uint256 _mintingId,
+        uint256 _priceVolatility
+    ) external onlyOperator {
+        MintingRequest storage request = mintingRequests[_mintingId];
+        require(request.status == MintingStatus.Pending, "FLIPCore: invalid status");
+
+        // Get current hour (0-23)
+        uint256 hourOfDay = (block.timestamp / 3600) % 24;
+
+        // Calculate deterministic score
+        DeterministicScoring.ScoringParams memory params = DeterministicScoring.ScoringParams({
+            priceVolatility: _priceVolatility,
+            amount: request.fxrpAmount,
+            agentSuccessRate: 990000, // 99% default
+            agentStake: 200000 ether,
+            hourOfDay: hourOfDay
+        });
+
+        DeterministicScoring.ScoreResult memory result = DeterministicScoring.calculateScore(params);
+
+        // Require high confidence for provisional settlement
+        require(result.canProvisionalSettle, "FLIPCore: score too low for provisional settlement");
+
+        // Calculate suggested haircut from score
+        uint256 suggestedHaircut = DeterministicScoring.calculateSuggestedHaircut(result);
+
+        // Try to match ERC20 liquidity provider (FXRP)
+        (address matchedLP, uint256 availableAmount) = lpRegistry.matchERC20Liquidity(
+            request.asset,
+            request.fxrpAmount,
+            suggestedHaircut
+        );
+
+        require(matchedLP != address(0) && availableAmount >= request.fxrpAmount, "FLIPCore: no LP liquidity available");
+
+        // Transfer FXRP from LP (via registry) to user
+        // The matchERC20Liquidity function transfers to escrow, but for minting we want direct to user
+        // For now, escrow will release to user - create minting escrow
+        escrowVault.createMintingEscrow(
+            _mintingId,
+            request.user,
+            matchedLP,
+            request.asset,
+            request.fxrpAmount,
+            (request.fxrpAmount * suggestedHaircut) / 1000000
+        );
+
+        request.matchedLP = matchedLP;
+        request.haircutRate = suggestedHaircut;
+        request.status = MintingStatus.ProvisionalSettled;
+
+        emit MintingProvisionalSettled(
+            _mintingId,
+            request.user,
+            matchedLP,
+            request.fxrpAmount,
+            suggestedHaircut,
+            block.timestamp
+        );
+    }
+
+    /**
+     * @notice Owner-only function to process minting (for testing)
+     * @param _mintingId Minting request ID
+     * @param _priceVolatility Current price volatility
+     */
+    function ownerProcessMinting(
+        uint256 _mintingId,
+        uint256 _priceVolatility
+    ) external onlyOwner {
+        MintingRequest storage request = mintingRequests[_mintingId];
+        require(request.status == MintingStatus.Pending, "FLIPCore: invalid status");
+
+        uint256 hourOfDay = (block.timestamp / 3600) % 24;
+
+        DeterministicScoring.ScoringParams memory params = DeterministicScoring.ScoringParams({
+            priceVolatility: _priceVolatility,
+            amount: request.fxrpAmount,
+            agentSuccessRate: 990000,
+            agentStake: 200000 ether,
+            hourOfDay: hourOfDay
+        });
+
+        DeterministicScoring.ScoreResult memory result = DeterministicScoring.calculateScore(params);
+        require(result.canProvisionalSettle, "FLIPCore: score too low");
+
+        uint256 suggestedHaircut = DeterministicScoring.calculateSuggestedHaircut(result);
+
+        (address matchedLP, uint256 availableAmount) = lpRegistry.matchERC20Liquidity(
+            request.asset,
+            request.fxrpAmount,
+            suggestedHaircut
+        );
+
+        require(matchedLP != address(0) && availableAmount >= request.fxrpAmount, "FLIPCore: no LP liquidity");
+
+        escrowVault.createMintingEscrow(
+            _mintingId,
+            request.user,
+            matchedLP,
+            request.asset,
+            request.fxrpAmount,
+            (request.fxrpAmount * suggestedHaircut) / 1000000
+        );
+
+        request.matchedLP = matchedLP;
+        request.haircutRate = suggestedHaircut;
+        request.status = MintingStatus.ProvisionalSettled;
+
+        emit MintingProvisionalSettled(
+            _mintingId,
+            request.user,
+            matchedLP,
+            request.fxrpAmount,
+            suggestedHaircut,
+            block.timestamp
+        );
+    }
+
+    /**
+     * @notice Handle FDC attestation for minting
+     * @param _mintingId Minting request ID
+     * @param _fdcRequestId FDC request ID
+     * @param _success Whether FDC confirmed payment
+     */
+    function handleMintingFDCAttestation(
+        uint256 _mintingId,
+        uint256 _fdcRequestId,
+        bool _success
+    ) external onlyOperator {
+        MintingRequest storage request = mintingRequests[_mintingId];
+        require(
+            request.status == MintingStatus.ProvisionalSettled ||
+            request.status == MintingStatus.QueuedForFDC,
+            "FLIPCore: invalid status"
+        );
+
+        request.fdcRequestId = _fdcRequestId;
+
+        if (_success) {
+            // FDC confirmed XRP payment is valid
+            escrowVault.releaseMintingOnFDC(_mintingId, true, _fdcRequestId);
+
+            // LP is repaid from newly minted tokens (handled by escrow)
+            // Record settlement for LP earnings
+            if (request.matchedLP != address(0)) {
+                lpRegistry.recordSettlement(
+                    request.matchedLP,
+                    request.asset,
+                    request.fxrpAmount,
+                    request.haircutRate
+                );
+            }
+
+            // Settle price hedge
+            priceHedgePool.settleHedge(request.hedgeId);
+
+            request.status = MintingStatus.Finalized;
+            emit MintingFinalized(_mintingId, true, block.timestamp);
+        } else {
+            // FDC confirmed failure - LP loses FXRP they provided
+            escrowVault.releaseMintingOnFDC(_mintingId, false, _fdcRequestId);
+
+            priceHedgePool.settleHedge(request.hedgeId);
+
+            request.status = MintingStatus.Failed;
+            emit MintingFailed(_mintingId, block.timestamp);
+        }
+    }
+
+    /**
+     * @notice Queue minting for FDC (low confidence)
+     * @param _mintingId Minting request ID
+     */
+    function queueMintingForFDC(uint256 _mintingId) external onlyOperator {
+        MintingRequest storage request = mintingRequests[_mintingId];
+        require(request.status == MintingStatus.Pending, "FLIPCore: invalid status");
+        request.status = MintingStatus.QueuedForFDC;
+    }
+
+    /**
+     * @notice Check minting timeout
+     * @param _mintingId Minting request ID
+     */
+    function checkMintingTimeout(uint256 _mintingId) external {
+        MintingRequest storage request = mintingRequests[_mintingId];
+        require(request.status == MintingStatus.ProvisionalSettled, "FLIPCore: invalid status");
+
+        require(escrowVault.canMintingTimeout(_mintingId), "FLIPCore: not timed out");
+
+        escrowVault.timeoutMintingRelease(_mintingId);
+        request.status = MintingStatus.Timeout;
+    }
+
+    /**
+     * @notice Get minting request status
+     * @param _mintingId Minting request ID
+     * @return status Current minting status
+     */
+    function getMintingStatus(uint256 _mintingId) external view returns (MintingStatus status) {
+        return mintingRequests[_mintingId].status;
+    }
+
+    /**
+     * @notice Get minting request details
+     * @param _mintingId Minting request ID
+     */
+    function getMintingRequest(uint256 _mintingId) external view returns (MintingRequest memory) {
+        return mintingRequests[_mintingId];
     }
 }
 

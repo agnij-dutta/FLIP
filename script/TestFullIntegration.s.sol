@@ -17,7 +17,7 @@ import {IFAsset} from "../contracts/interfaces/IFAsset.sol";
 contract TestFullIntegration is Script {
     // Coston2 deployed addresses
     address constant FLIP_CORE = 0xcBc8eB46172c2caD5b4961E8c4F5f827e618a387;
-    address constant ESCROW_VAULT = 0x0E37cc3Dc8Fa1675f2748b77dddfF452b63DD4CC;
+    address payable constant ESCROW_VAULT = payable(0x0E37cc3Dc8Fa1675f2748b77dddfF452b63DD4CC);
     address constant SETTLEMENT_RECEIPT = 0x0Ff7d4E7aF64059426F76d2236155ef1655C99D8;
     address constant LP_REGISTRY = 0x2CC077f1Da27e7e08A1832804B03b30A2990a61C;
     address constant OPERATOR_REGISTRY = 0x21b165aE60748410793e4c2ef248940dc31FE773;

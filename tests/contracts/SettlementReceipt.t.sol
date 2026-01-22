@@ -9,9 +9,9 @@ contract SettlementReceiptTest is Test {
     EscrowVault public escrowVault;
     SettlementReceipt public settlementReceipt;
     
-    address public user = address(0x1);
-    address public lp = address(0x2);
-    address public asset = address(0x3);
+    address public user = address(0x1001); // Use non-precompile address
+    address public lp = address(0x2002);
+    address public asset = address(0x3003);
     
     function setUp() public {
         escrowVault = new EscrowVault();
@@ -21,9 +21,13 @@ contract SettlementReceiptTest is Test {
         vm.prank(address(escrowVault.owner()));
         escrowVault.setFLIPCore(address(this));
         
-        // Set FLIPCore for settlement receipt (via escrow vault)
+        // Set SettlementReceipt in escrow vault
+        vm.prank(address(escrowVault.owner()));
+        escrowVault.setSettlementReceipt(address(settlementReceipt));
+        
+        // Set FLIPCore for settlement receipt
         vm.prank(address(settlementReceipt.owner()));
-        // Settlement receipt authorization handled via escrow vault
+        settlementReceipt.setFLIPCore(address(this));
     }
     
     function testMintReceipt() public {
@@ -60,6 +64,10 @@ contract SettlementReceiptTest is Test {
         uint256 amount = 100 ether;
         uint256 haircutRate = 5000; // 0.5%
         
+        // Fund escrow vault (simulating LP transfer)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
+        
         escrowVault.createEscrow(redemptionId, user, lp, asset, amount, true);
         
         uint256 receiptId = settlementReceipt.mintReceipt(
@@ -84,6 +92,10 @@ contract SettlementReceiptTest is Test {
         uint256 amount = 100 ether;
         uint256 haircutRate = 5000;
         uint256 fdcRoundId = 12345;
+        
+        // Fund escrow vault
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         escrowVault.createEscrow(redemptionId, user, address(0), asset, amount, false);
         

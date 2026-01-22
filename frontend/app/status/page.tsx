@@ -24,7 +24,7 @@ export default function StatusPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white">
+    <main className="min-h-screen bg-gradient-to-b from-[#0b0f1f] via-black to-black text-white selection:bg-purple-500/30">
       <Header />
       
       <div className="container mx-auto px-4 py-16">
@@ -35,7 +35,7 @@ export default function StatusPage() {
 
         {/* System Health */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="bg-gray-800 border-gray-700">
+          <Card className="bg-gray-900/60 border-gray-800 backdrop-blur-xl">
             <CardHeader>
               <CardTitle className="text-lg">Contract Status</CardTitle>
             </CardHeader>
@@ -49,7 +49,7 @@ export default function StatusPage() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gray-800 border-gray-700">
+          <Card className="bg-gray-900/60 border-gray-800 backdrop-blur-xl">
             <CardHeader>
               <CardTitle className="text-lg">FDC Status</CardTitle>
             </CardHeader>
@@ -61,7 +61,7 @@ export default function StatusPage() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gray-800 border-gray-700">
+          <Card className="bg-gray-900/60 border-gray-800 backdrop-blur-xl">
             <CardHeader>
               <CardTitle className="text-lg">Oracle Status</CardTitle>
             </CardHeader>
@@ -77,7 +77,7 @@ export default function StatusPage() {
         {/* Statistics Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {stats.map((stat) => (
-            <Card key={stat.label} className="bg-gray-800 border-gray-700">
+            <Card key={stat.label} className="bg-gray-900/50 border-gray-800">
               <CardContent className="pt-6">
                 <div className="text-2xl font-bold mb-1">{stat.value}</div>
                 <div className="text-sm text-gray-400">{stat.label}</div>
@@ -88,7 +88,7 @@ export default function StatusPage() {
 
         {/* Real-time Analytics */}
         <div className="mb-8">
-          <Card className="bg-gray-800 border-gray-700">
+          <Card className="bg-gray-900/60 border-gray-800 backdrop-blur-xl">
             <CardHeader>
               <CardTitle>Redemption Activity</CardTitle>
             </CardHeader>
@@ -99,7 +99,7 @@ export default function StatusPage() {
         </div>
 
         {/* Contract Addresses */}
-        <Card className="bg-gray-800 border-gray-700">
+        <Card className="bg-gray-900/60 border-gray-800 backdrop-blur-xl">
           <CardHeader>
             <CardTitle>Deployed Contracts (Coston2)</CardTitle>
           </CardHeader>

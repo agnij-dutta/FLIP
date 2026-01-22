@@ -7,9 +7,9 @@ import "../../contracts/EscrowVault.sol";
 contract EscrowVaultTest is Test {
     EscrowVault public escrowVault;
     
-    address public user = address(0x1);
-    address public lp = address(0x2);
-    address public asset = address(0x3);
+    address public user = address(0x1001); // Use non-precompile address
+    address public lp = address(0x2002);
+    address public asset = address(0x3003);
     
     function setUp() public {
         escrowVault = new EscrowVault();
@@ -48,6 +48,9 @@ contract EscrowVaultTest is Test {
         vm.prank(address(escrowVault.owner()));
         escrowVault.setFLIPCore(address(this));
         
+        // Fund escrow vault first (simulating LP transfer)
+        vm.deal(address(escrowVault), amount);
+        
         escrowVault.createEscrow(
             redemptionId,
             user,
@@ -69,6 +72,10 @@ contract EscrowVaultTest is Test {
         
         vm.prank(address(escrowVault.owner()));
         escrowVault.setFLIPCore(address(this));
+        
+        // Fund escrow vault
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         escrowVault.createEscrow(redemptionId, user, address(0), asset, amount, false);
         escrowVault.releaseOnFDC(redemptionId, true, fdcRoundId);
@@ -100,6 +107,10 @@ contract EscrowVaultTest is Test {
         
         vm.prank(address(escrowVault.owner()));
         escrowVault.setFLIPCore(address(this));
+        
+        // Fund escrow vault
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         escrowVault.createEscrow(redemptionId, user, address(0), asset, amount, false);
         

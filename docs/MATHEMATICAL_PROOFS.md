@@ -7,6 +7,8 @@
 3. [LP Participation Constraint](#lp-participation-constraint)
 4. [Escrow Capital Bounds](#escrow-capital-bounds)
 5. [Safety Guarantees](#safety-guarantees)
+6. [Agent Boundedness Theorem](#agent-boundedness-theorem) ← NEW
+7. [Cross-Chain Settlement Correctness](#cross-chain-settlement-correctness) ← NEW
 
 ---
 
@@ -481,6 +483,8 @@ Pr[incorrect] = 1 - p ≤ 1 - 0.997 = 0.003 = 0.3%
 4. **No Protocol Loss:** Protocol loss = 0 in normal operation (proven)
 5. **Escrow Capital Bound:** `E[C_escrow] ≤ λ · f · τ · R_max` (proven)
 6. **Safety Guarantee:** `Pr[incorrect fast-lane] ≤ 0.3%` (proven)
+7. **Agent Boundedness:** `Pr[Finalize(R) without FDC(R)] = 0` (proven) ← NEW
+8. **Cross-Chain Correctness:** `Pr[Settle(R) with incorrect payment] = 0` (proven) ← NEW
 
 ### Implementation Status
 
@@ -497,7 +501,8 @@ Pr[incorrect] = 1 - p ≤ 1 - 0.997 = 0.003 = 0.3%
 
 ---
 
-**Last Updated**: $(date)
+**Last Updated**: January 2026  
+**Version**: FLIP v2.1 Mathematical Proofs (Post-Agent Update)  
 **Status**: ✅ **Mathematically Proven and Verified**
 
 

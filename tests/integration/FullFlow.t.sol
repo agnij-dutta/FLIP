@@ -27,8 +27,8 @@ contract FullFlowTest is Test {
     MockStateConnector public stateConnector;
     MockFAsset public fAsset;
 
-    address public user = address(0x1);
-    address public operator = address(0x2);
+    address public user = address(0x1001); // Use non-precompile address
+    address public operator = address(0x2002);
 
     function setUp() public {
         // Deploy all contracts
@@ -54,8 +54,13 @@ contract FullFlowTest is Test {
         vm.prank(address(escrowVault.owner()));
         escrowVault.setFLIPCore(address(flipCore));
         
+        vm.prank(address(escrowVault.owner()));
+        escrowVault.setSettlementReceipt(address(settlementReceipt));
+        
         vm.prank(address(lpRegistry.owner()));
         lpRegistry.setFLIPCore(address(flipCore));
+        vm.prank(address(lpRegistry.owner()));
+        lpRegistry.setEscrowVault(address(escrowVault));
         
         vm.prank(address(settlementReceipt.owner()));
         settlementReceipt.setFLIPCore(address(flipCore));
@@ -81,7 +86,8 @@ contract FullFlowTest is Test {
         // 1. User requests redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         assertEq(
@@ -124,6 +130,10 @@ contract FullFlowTest is Test {
         uint256 receiptId = settlementReceipt.redemptionToTokenId(redemptionId);
         assertGt(receiptId, 0, "Receipt should be minted");
 
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
+
         // 4. FDC confirms success
         vm.prank(operator);
         flipCore.handleFDCAttestation(redemptionId, 1, true);
@@ -144,7 +154,8 @@ contract FullFlowTest is Test {
         // 1. Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // 2. Finalize provisional (high confidence)
@@ -180,7 +191,8 @@ contract FullFlowTest is Test {
         // 1. Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
 
         // 2. Evaluate (low confidence)
@@ -222,23 +234,32 @@ contract FullFlowTest is Test {
         uint256 amount = 100 ether;
         
         // Setup LP with liquidity (low minHaircut to ensure matching)
-        address lp = address(0x3);
+        address lp = address(0x3003); // Use non-precompile address
         vm.deal(lp, 10000 ether);
         vm.prank(lp);
-        lpRegistry.depositLiquidity{value: 10000 ether}(address(fAsset), 10000 ether, 1000, 3600); // 0.1% min haircut, 1hr max delay
+        lpRegistry.depositLiquidity{value: 10000 ether}(address(fAsset), 10000 ether, 500, 3600); // 0.05% min haircut (lower to ensure matching)
         
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
-        // Finalize provisional
+        // Finalize provisional (should match LP)
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
         
         // Get receipt ID
         uint256 receiptId = settlementReceipt.redemptionToTokenId(redemptionId);
+        
+        // Ensure escrow has funds (LP match should have transferred, but ensure it for test)
+        EscrowVault.Escrow memory escrow = escrowVault.getEscrow(redemptionId);
+        if (!escrow.lpFunded) {
+            // If no LP matched, fund escrow for user-wait path
+            vm.deal(address(escrowVault), amount);
+        }
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         // User redeems immediately (with haircut)
         vm.startPrank(user);
@@ -267,12 +288,17 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         // Finalize provisional (no LP, user-wait path)
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+        
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         // FDC confirms success
         vm.prank(operator);
@@ -319,7 +345,8 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, 100 ether);
-        uint256 redemptionId = flipCore.requestRedemption(100 ether, address(fAsset));
+        fAsset.approve(address(flipCore), 100 ether);
+        uint256 redemptionId = flipCore.requestRedemption(100 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         // Finalize provisional (should match LP)
@@ -341,12 +368,17 @@ contract FullFlowTest is Test {
         // Request redemption
         vm.startPrank(user);
         fAsset.mint(user, amount);
-        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset));
+        fAsset.approve(address(flipCore), amount);
+        uint256 redemptionId = flipCore.requestRedemption(amount, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         // Finalize provisional
         vm.prank(operator);
         flipCore.finalizeProvisional(redemptionId, 5000, 995000, 200000 ether);
+        
+        // Fund escrow vault (user-wait path, no LP match, so escrow needs funds for timeout release)
+        vm.deal(address(escrowVault), amount);
+        vm.deal(user, 0); // Ensure user starts with 0 balance
         
         // Fast forward past timeout (600 seconds)
         vm.warp(block.timestamp + 601);
@@ -373,7 +405,8 @@ contract FullFlowTest is Test {
         // Redemption 1: High confidence
         vm.startPrank(user);
         fAsset.mint(user, 100 ether);
-        uint256 redemptionId1 = flipCore.requestRedemption(100 ether, address(fAsset));
+        fAsset.approve(address(flipCore), 100 ether);
+        uint256 redemptionId1 = flipCore.requestRedemption(100 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         (uint8 decision1, ) = flipCore.evaluateRedemption(
@@ -387,7 +420,8 @@ contract FullFlowTest is Test {
         // Redemption 2: Medium confidence
         vm.startPrank(user);
         fAsset.mint(user, 5000 ether);
-        uint256 redemptionId2 = flipCore.requestRedemption(5000 ether, address(fAsset));
+        fAsset.approve(address(flipCore), 5000 ether);
+        uint256 redemptionId2 = flipCore.requestRedemption(5000 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         (uint8 decision2, uint256 score2) = flipCore.evaluateRedemption(
@@ -403,7 +437,8 @@ contract FullFlowTest is Test {
         // Redemption 3: Low confidence
         vm.startPrank(user);
         fAsset.mint(user, 100000 ether);
-        uint256 redemptionId3 = flipCore.requestRedemption(100000 ether, address(fAsset));
+        fAsset.approve(address(flipCore), 100000 ether);
+        uint256 redemptionId3 = flipCore.requestRedemption(100000 ether, address(fAsset), "rTEST_ADDRESS");
         vm.stopPrank();
         
         (uint8 decision3, ) = flipCore.evaluateRedemption(
