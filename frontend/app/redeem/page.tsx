@@ -260,15 +260,15 @@ export default function RedeemPage() {
             abi: FLIP_CORE_ABI,
             functionName: 'redemptions',
             args: [BigInt(i)],
-          }) as any[];
+          });
 
           // status is at index 6, amount at index 2, xrplAddress at index 9
           const status = Number(data[6]);
           if (status === 0) { // Pending status
             pending.push({
               id: BigInt(i),
-              amount: data[2] as bigint,
-              xrplAddress: data[9] as string,
+              amount: data[2],
+              xrplAddress: data[9],
             });
           }
         } catch (e) {
@@ -320,8 +320,9 @@ export default function RedeemPage() {
   useEffect(() => {
     if (isSuccess && lastAction === 'approve') {
       // Refetch allowance to update the UI immediately
+      // Note: Don't clear lastAction here - it's needed for the success message display
+      // It will be reset when the user starts a new transaction
       refetchAllowance();
-      setLastAction(null);
     }
   }, [isSuccess, lastAction, refetchAllowance]);
 
@@ -401,11 +402,9 @@ export default function RedeemPage() {
       return;
     }
 
-    // Reset any previous errors
-    if (writeError) {
-      resetWrite();
-    }
-    
+    // Reset any previous transaction state
+    resetWrite();
+
     setError(null);
     setLastAction('approve');
     
@@ -453,6 +452,8 @@ export default function RedeemPage() {
     }
 
     try {
+      // Reset previous transaction state
+      resetWrite();
       setError(null);
       setLastAction('redeem');
       const amountWei = parseUnits(amount, decimals);

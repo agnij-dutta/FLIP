@@ -58,6 +58,9 @@ contract FLIPCore is Pausable {
     mapping(uint256 => Redemption) public redemptions;
     uint256 public nextRedemptionId;
 
+    // Track XRPL payments to prevent double-paying
+    mapping(uint256 => string) public redemptionXrplTxHash;
+
     // ============ MINTING STATE ============
 
     struct MintingRequest {
@@ -106,7 +109,12 @@ contract FLIPCore is Pausable {
         uint256 amount,
         uint256 timestamp
     );
-    
+
+    event XrplPaymentRecorded(
+        uint256 indexed redemptionId,
+        string xrplTxHash
+    );
+
     event ReceiptRedeemed(
         uint256 indexed redemptionId,
         uint256 indexed receiptId,
@@ -485,6 +493,31 @@ contract FLIPCore is Pausable {
             redemption.amount,
             block.timestamp
         );
+    }
+
+    /**
+     * @notice Record XRPL payment tx hash (prevents double-payment on agent restart)
+     * @param _redemptionId Redemption ID
+     * @param _xrplTxHash XRPL transaction hash
+     */
+    function recordXrplPayment(
+        uint256 _redemptionId,
+        string calldata _xrplTxHash
+    ) external onlyOperator {
+        Redemption storage redemption = redemptions[_redemptionId];
+        require(
+            redemption.status == RedemptionStatus.EscrowCreated,
+            "FLIPCore: invalid status"
+        );
+        require(
+            bytes(redemptionXrplTxHash[_redemptionId]).length == 0,
+            "FLIPCore: payment already recorded"
+        );
+        require(bytes(_xrplTxHash).length > 0, "FLIPCore: empty tx hash");
+
+        redemptionXrplTxHash[_redemptionId] = _xrplTxHash;
+
+        emit XrplPaymentRecorded(_redemptionId, _xrplTxHash);
     }
 
     /**

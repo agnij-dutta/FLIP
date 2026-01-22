@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"time"
@@ -74,20 +75,40 @@ func (fs *FDCSubmitter) GetFDCProof(ctx context.Context, xrplTxHash string) (*FD
 	return proof, nil
 }
 
+// encodeToHex32 encodes a string to a 32-byte hex string (UTF8 padded)
+func encodeToHex32(s string) string {
+	b := make([]byte, 32)
+	copy(b, []byte(s))
+	return "0x" + fmt.Sprintf("%x", b)
+}
+
 // prepareAttestationRequest prepares an FDC attestation request
 func (fs *FDCSubmitter) prepareAttestationRequest(ctx context.Context, txHash string) (string, uint64, error) {
 	url := fmt.Sprintf("%s/verifier/xrp/Payment/prepareRequest", fs.verifierURL)
 
+	// FDC requires the full attestation structure:
+	// - attestationType: "Payment" encoded as 32-byte hex
+	// - sourceId: "testXRP" for XRPL testnet encoded as 32-byte hex
+	// - requestBody: transaction details
 	requestBody := map[string]interface{}{
-		"transactionId": txHash,
-		"inUtxo":        "0",
-		"utxo":          "0",
+		"attestationType": encodeToHex32("Payment"),
+		"sourceId":        encodeToHex32("testXRP"),
+		"requestBody": map[string]interface{}{
+			"transactionId": txHash,
+			"inUtxo":        "0",
+			"utxo":          "0",
+		},
 	}
 
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
 		return "", 0, err
 	}
+
+	log.Debug().
+		Str("url", url).
+		Str("request", string(jsonData)).
+		Msg("Sending FDC attestation request")
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -107,7 +128,15 @@ func (fs *FDCSubmitter) prepareAttestationRequest(ctx context.Context, txHash st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", 0, fmt.Errorf("verifier returned status %d", resp.StatusCode)
+		// Read response body for error details
+		var errBody []byte
+		errBody, _ = io.ReadAll(resp.Body)
+		log.Debug().
+			Int("status", resp.StatusCode).
+			Str("body", string(errBody)).
+			Str("url", url).
+			Msg("FDC verifier error response")
+		return "", 0, fmt.Errorf("verifier returned status %d: %s", resp.StatusCode, string(errBody))
 	}
 
 	var result struct {

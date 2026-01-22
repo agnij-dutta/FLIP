@@ -231,7 +231,8 @@ func (a *Agent) recoverPendingEscrows(ctx context.Context) error {
 	// Get the next redemption ID to know how many to check
 	const flipCoreABIJSON = `[
 		{"inputs":[],"name":"nextRedemptionId","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-		{"inputs":[{"name":"_redemptionId","type":"uint256"}],"name":"redemptions","outputs":[{"name":"user","type":"address"},{"name":"asset","type":"address"},{"name":"amount","type":"uint256"},{"name":"requestedAt","type":"uint256"},{"name":"priceLocked","type":"uint256"},{"name":"hedgeId","type":"uint256"},{"name":"status","type":"uint8"},{"name":"fdcRequestId","type":"uint256"},{"name":"provisionalSettled","type":"bool"},{"name":"xrplAddress","type":"string"}],"stateMutability":"view","type":"function"}
+		{"inputs":[{"name":"_redemptionId","type":"uint256"}],"name":"redemptions","outputs":[{"name":"user","type":"address"},{"name":"asset","type":"address"},{"name":"amount","type":"uint256"},{"name":"requestedAt","type":"uint256"},{"name":"priceLocked","type":"uint256"},{"name":"hedgeId","type":"uint256"},{"name":"status","type":"uint8"},{"name":"fdcRequestId","type":"uint256"},{"name":"provisionalSettled","type":"bool"},{"name":"xrplAddress","type":"string"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"","type":"uint256"}],"name":"redemptionXrplTxHash","outputs":[{"name":"","type":"string"}],"stateMutability":"view","type":"function"}
 	]`
 
 	parsed, err := abi.JSON(strings.NewReader(flipCoreABIJSON))
@@ -269,6 +270,20 @@ func (a *Agent) recoverPendingEscrows(ctx context.Context) error {
 
 		// Status 2 = EscrowCreated (waiting for XRP payment)
 		if status == 2 {
+			// Check if payment already recorded on-chain
+			var txHashResult []interface{}
+			err = contract.Call(&bind.CallOpts{Context: ctx}, &txHashResult, "redemptionXrplTxHash", redemptionID)
+			if err == nil && len(txHashResult) > 0 {
+				existingTxHash := txHashResult[0].(string)
+				if existingTxHash != "" {
+					log.Info().
+						Uint64("redemption_id", i).
+						Str("existing_tx_hash", existingTxHash).
+						Msg("Payment already recorded on-chain, skipping")
+					continue
+				}
+			}
+
 			log.Info().
 				Uint64("redemption_id", i).
 				Str("user", user.Hex()).
@@ -315,29 +330,118 @@ func (a *Agent) handleEscrowCreated(ctx context.Context, event EscrowCreatedEven
 
 	log.Info().
 		Str("xrpl_tx_hash", txHash).
-		Msg("XRP payment sent, waiting for finalization")
+		Msg("XRP payment sent, recording on-chain")
 
-	// Step 2: Wait for XRPL transaction finalization
-	time.Sleep(5 * time.Second) // XRPL finalization typically takes 4-5 seconds
+	// Step 2: Record payment on-chain (prevents double-payment on restart)
+	if err := a.recordXrplPayment(ctx, event.RedemptionID, txHash); err != nil {
+		log.Warn().Err(err).Msg("Failed to record payment on-chain, continuing anyway")
+	}
 
-	// Step 3: Get FDC proof
+	// Step 3: Wait for XRPL transaction finalization
+	time.Sleep(10 * time.Second) // XRPL finalization typically takes 4-5 seconds
+
+	// Step 4: Get FDC proof (cryptographic proof of XRP payment)
 	proof, err := a.fdcSubmitter.GetFDCProof(ctx, txHash)
 	if err != nil {
-		return fmt.Errorf("failed to get FDC proof: %w", err)
+		// Log warning but don't fail - XRP was already sent
+		// FDC proof can be retried later for final settlement
+		log.Warn().
+			Err(err).
+			Uint64("redemption_id", event.RedemptionID.Uint64()).
+			Str("xrpl_tx_hash", txHash).
+			Msg("FDC proof fetch failed - XRP payment was sent, can retry FDC later")
+		return nil
 	}
 
 	log.Info().
 		Uint64("fdc_round_id", proof.RoundID).
 		Msg("FDC proof obtained")
 
-	// Step 4: Submit FDC proof to FLIPCore
+	// Step 5: Submit FDC proof to FLIPCore
 	if err := a.fdcSubmitter.SubmitProof(ctx, event.RedemptionID, proof); err != nil {
-		return fmt.Errorf("failed to submit FDC proof: %w", err)
+		log.Warn().
+			Err(err).
+			Uint64("redemption_id", event.RedemptionID.Uint64()).
+			Msg("FDC proof submission failed - can retry later")
+		return nil
 	}
 
 	log.Info().
 		Uint64("redemption_id", event.RedemptionID.Uint64()).
-		Msg("FDC proof submitted successfully")
+		Msg("FDC proof submitted successfully - redemption complete")
+
+	return nil
+}
+
+// recordXrplPayment records the XRPL tx hash on-chain to prevent double-payment
+func (a *Agent) recordXrplPayment(ctx context.Context, redemptionID *big.Int, xrplTxHash string) error {
+	const recordPaymentABI = `[{
+		"inputs": [
+			{"name": "_redemptionId", "type": "uint256"},
+			{"name": "_xrplTxHash", "type": "string"}
+		],
+		"name": "recordXrplPayment",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	}]`
+
+	parsed, err := abi.JSON(strings.NewReader(recordPaymentABI))
+	if err != nil {
+		return fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	privateKeyHex := a.config.Flare.PrivateKey
+	if privateKeyHex == "" {
+		return fmt.Errorf("no Flare private key configured")
+	}
+
+	privateKey, err := crypto.HexToECDSA(strings.TrimPrefix(privateKeyHex, "0x"))
+	if err != nil {
+		return fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	chainID := big.NewInt(int64(a.config.Flare.ChainID))
+	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
+	if err != nil {
+		return fmt.Errorf("failed to create transactor: %w", err)
+	}
+
+	nonce, err := a.flareClient.PendingNonceAt(ctx, auth.From)
+	if err != nil {
+		return fmt.Errorf("failed to get nonce: %w", err)
+	}
+	auth.Nonce = big.NewInt(int64(nonce))
+
+	gasPrice, err := a.flareClient.SuggestGasPrice(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get gas price: %w", err)
+	}
+	auth.GasPrice = gasPrice
+	auth.GasLimit = uint64(200000)
+
+	flipCoreAddr := common.HexToAddress(a.config.Flare.FLIPCoreAddress)
+	tx, err := bind.NewBoundContract(flipCoreAddr, parsed, a.flareClient, a.flareClient, a.flareClient).Transact(auth, "recordXrplPayment", redemptionID, xrplTxHash)
+	if err != nil {
+		return fmt.Errorf("failed to send transaction: %w", err)
+	}
+
+	log.Info().
+		Str("tx_hash", tx.Hash().Hex()).
+		Msg("Recording XRPL payment on-chain")
+
+	receipt, err := bind.WaitMined(ctx, a.flareClient, tx)
+	if err != nil {
+		return fmt.Errorf("failed to wait for transaction: %w", err)
+	}
+
+	if receipt.Status != 1 {
+		return fmt.Errorf("transaction failed with status %d", receipt.Status)
+	}
+
+	log.Info().
+		Str("tx_hash", tx.Hash().Hex()).
+		Msg("XRPL payment recorded on-chain")
 
 	return nil
 }

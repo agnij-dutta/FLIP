@@ -120,7 +120,8 @@ func (em *EventMonitor) Monitor(ctx context.Context, eventChan chan<- EscrowCrea
 			}
 
 			// Limit block range to avoid RPC errors (max 30 blocks per query)
-			const maxBlockRange uint64 = 30
+			// Note: FilterLogs range is inclusive, so X to X+29 = 30 blocks
+			const maxBlockRange uint64 = 29
 			toBlock := currentBlock
 			if toBlock-em.lastBlock > maxBlockRange {
 				toBlock = em.lastBlock + maxBlockRange
@@ -198,7 +199,8 @@ func (em *EventMonitor) MonitorRedemptionRequests(ctx context.Context, eventChan
 			}
 
 			// Limit block range to avoid RPC errors (max 30 blocks per query)
-			const maxBlockRange uint64 = 30
+			// Note: FilterLogs range is inclusive, so X to X+29 = 30 blocks
+			const maxBlockRange uint64 = 29
 			toBlock := currentBlock
 			if toBlock-em.lastBlock > maxBlockRange {
 				toBlock = em.lastBlock + maxBlockRange
