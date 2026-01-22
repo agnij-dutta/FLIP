@@ -139,13 +139,33 @@ func (fs *FDCSubmitter) prepareAttestationRequest(ctx context.Context, txHash st
 		return "", 0, fmt.Errorf("verifier returned status %d: %s", resp.StatusCode, string(errBody))
 	}
 
+	// Read full response body for debugging
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	log.Debug().
+		Str("response", string(respBody)).
+		Msg("FDC verifier response")
+
 	var result struct {
+		Status            string `json:"status"`
 		AbiEncodedRequest string `json:"abiEncodedRequest"`
 		RoundID           uint64 `json:"roundId"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", 0, err
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", 0, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Check status
+	if result.Status != "" && result.Status != "VALID" {
+		return "", 0, fmt.Errorf("verifier returned status: %s", result.Status)
+	}
+
+	if result.AbiEncodedRequest == "" {
+		return "", 0, fmt.Errorf("verifier returned empty abiEncodedRequest")
 	}
 
 	return result.AbiEncodedRequest, result.RoundID, nil
@@ -153,7 +173,8 @@ func (fs *FDCSubmitter) prepareAttestationRequest(ctx context.Context, txHash st
 
 // fetchProofFromDALayer fetches FDC proof from Data Availability Layer
 func (fs *FDCSubmitter) fetchProofFromDALayer(ctx context.Context, roundID uint64, requestBytes string) (*FDCProof, error) {
-	url := fmt.Sprintf("%s/get-proof-round-id-bytes", fs.daLayerURL)
+	// Correct endpoint: /api/v1/fdc/proof-by-request-round
+	url := fmt.Sprintf("%s/api/v1/fdc/proof-by-request-round", fs.daLayerURL)
 
 	requestBody := map[string]interface{}{
 		"votingRoundId": roundID,

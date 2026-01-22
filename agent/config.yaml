@@ -21,7 +21,7 @@ xrpl:
 # FDC Configuration
 fdc:
   verifier_url: "https://fdc-verifiers-testnet.flare.network"
-  da_layer_url: "https://coston2-api.flare.network/api/v0/fdc"
+  da_layer_url: "https://coston2-api.flare.network"  # Base URL - endpoint path added in code
   api_key: "00000000-0000-0000-0000-000000000000" # Test API key for FDC verifier
 
 # Agent Settings
