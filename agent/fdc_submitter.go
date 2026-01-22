@@ -187,10 +187,6 @@ func (fs *FDCSubmitter) prepareAttestationRequest(ctx context.Context, txHash st
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if result.Status != "" && result.Status != "VALID" {
-		return "", fmt.Errorf("verifier returned invalid status: %s", result.Status)
-	}
-
 	if result.AbiEncodedRequest == "" {
 		return "", fmt.Errorf("verifier returned empty abiEncodedRequest (tx may not be indexed yet)")
 	}
