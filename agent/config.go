@@ -32,7 +32,6 @@ type XRPLConfig struct {
 
 type FDCConfig struct {
 	VerifierURL string `yaml:"verifier_url"`
-	DALayerURL  string `yaml:"da_layer_url"`
 	APIKey      string `yaml:"api_key"`
 }
 
