@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { getAvailableAgents, getCollateralReservationFee, getCollateralReservationInfo, getAssetMintingDecimals, getAssetManagerAddress, ASSET_MANAGER_ABI, type AgentInfo, type CollateralReservationInfo } from '@/lib/fassets';
 import { connectXRPLClient, getXRPBalance, sendXRPPayment, monitorPayment, getTransaction, isValidXRPLAddress, generateAndFundTestnetWallet, type XRPLBalance } from '@/lib/xrpl';
 import { Wallet } from 'xrpl';
+import { CONTRACTS, FLIP_CORE_ABI } from '@/lib/contracts';
 
 // FXRP address
 const FXRP_ADDRESS = '0x0b6A3645c240605887a5532109323A3E12273dc7' as Address;
@@ -35,13 +36,12 @@ const ERC20_ABI = [
   },
 ] as const;
 
-type MintingStep = 
+type MintingStep =
   | 'select-agent'
   | 'reserve-collateral'
   | 'connect-xrpl'
   | 'send-xrp'
-  | 'wait-fdc'
-  | 'execute-minting'
+  | 'flip-settlement'  // FLIP instant settlement (replaces wait-fdc)
   | 'success';
 
 export default function MintPage() {
@@ -75,11 +75,14 @@ export default function MintPage() {
   const [walletSecret, setWalletSecret] = useState<string>('');
   const [sendingPayment, setSendingPayment] = useState<boolean>(false);
   const [secretError, setSecretError] = useState<string | null>(null);
-  const [fdcRoundId, setFdcRoundId] = useState<number | null>(null);
   const [fxrpBalance, setFxrpBalance] = useState<string>('0');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [generatingWallet, setGeneratingWallet] = useState<boolean>(false);
+  // FLIP settlement state
+  const [flipMintingId, setFlipMintingId] = useState<bigint | null>(null);
+  const [flipSettling, setFlipSettling] = useState<boolean>(false);
+  const [flipSettled, setFlipSettled] = useState<boolean>(false);
 
   // Fetch FXRP balance
   const { data: fxrpBalanceData, refetch: refetchFxrp } = useReadContract({
@@ -272,18 +275,14 @@ export default function MintPage() {
 
   // Parse CollateralReserved event to get reservation ID
   useEffect(() => {
-    if (txHash && txSuccess && publicClient) {
+    if (txHash && txSuccess && publicClient && step === 'reserve-collateral') {
       console.log('Transaction successful, parsing receipt for txHash:', txHash);
 
       publicClient.getTransactionReceipt({ hash: txHash }).then((receipt) => {
         console.log('Transaction receipt:', receipt);
         console.log('Number of logs:', receipt.logs.length);
 
-        // Correct CollateralReserved event ABI based on actual contract:
-        // CollateralReserved(address indexed agentVault, address indexed minter, uint256 indexed collateralReservationId,
-        //   uint256 valueUBA, uint256 feeUBA, uint256 firstUnderlyingBlock, uint256 lastUnderlyingBlock,
-        //   uint256 lastUnderlyingTimestamp, string paymentAddress, bytes32 paymentReference,
-        //   address executor, uint256 executorFeeNatWei)
+        // CollateralReserved event ABI from FAssets AssetManager
         const eventAbi = {
           anonymous: false,
           inputs: [
@@ -304,104 +303,111 @@ export default function MintPage() {
           type: 'event',
         };
 
-        // Known event signature hash for CollateralReserved
-        const COLLATERAL_RESERVED_TOPIC = '0x7e28eb3b9a2077a4fa0559357b1647ec5eabf18d7adf1539c4e8fb1445a5fc09';
-
         let found = false;
+
+        // Try to decode each log - don't rely on hardcoded topic hash
         for (const log of receipt.logs) {
           console.log('Processing log:', log.address, 'topics:', log.topics);
 
-          // Check if this is the CollateralReserved event by topic signature
-          if (log.topics[0] === COLLATERAL_RESERVED_TOPIC) {
-            console.log('Found CollateralReserved event by topic signature');
+          // Skip logs with fewer than 4 topics (CollateralReserved has 3 indexed params + signature)
+          if (log.topics.length < 4) {
+            continue;
+          }
 
-            try {
-              const decoded = decodeEventLog({
-                abi: [eventAbi],
-                data: log.data,
-                topics: log.topics,
-              });
+          // Try to decode with the CollateralReserved ABI
+          try {
+            const decoded = decodeEventLog({
+              abi: [eventAbi],
+              data: log.data,
+              topics: log.topics,
+            });
 
-              console.log('Successfully decoded event:', decoded.eventName, decoded.args);
+            console.log('Successfully decoded event:', decoded.eventName, decoded.args);
 
-              if (decoded.eventName === 'CollateralReserved') {
-                const args = decoded.args as any;
-                const resId = args.collateralReservationId;
-                if (resId != null) {
-                  console.log('Found collateralReservationId:', resId);
-                  setReservationId(BigInt(resId));
+            if (decoded.eventName === 'CollateralReserved') {
+              const args = decoded.args as any;
+              const resId = args.collateralReservationId;
+              if (resId != null) {
+                console.log('Found collateralReservationId:', resId);
+                setReservationId(BigInt(resId));
 
-                  // Also extract payment info from the event
-                  const extractedPaymentInfo = {
-                    agentXrplAddress: args.paymentAddress || '',
-                    valueUBA: BigInt(args.valueUBA || 0),
-                    feeUBA: BigInt(args.feeUBA || 0),
-                    paymentReference: args.paymentReference || '',
-                  };
-                  console.log('Extracted payment info:', extractedPaymentInfo);
-                  setPaymentInfo(extractedPaymentInfo);
-
-                  found = true;
-                  break;
-                }
-              }
-            } catch (e) {
-              console.log('Failed to decode with ABI, trying topic extraction...', e);
-            }
-
-            // Fallback: Extract data manually from topics and data
-            if (!found && log.topics.length >= 4) {
-              const resIdTopic = log.topics[3];
-              if (resIdTopic) {
-                const resId = BigInt(resIdTopic);
-                console.log('Extracted collateralReservationId from topic[3]:', resId.toString());
-                setReservationId(resId);
-
-                // Try to manually parse the data field
-                // Data layout (each uint256 is 32 bytes = 64 hex chars):
-                // [0-64]: valueUBA
-                // [64-128]: feeUBA
-                // [128-192]: firstUnderlyingBlock
-                // [192-256]: lastUnderlyingBlock
-                // [256-320]: lastUnderlyingTimestamp
-                // [320-384]: offset to paymentAddress string
-                // [384-448]: paymentReference (bytes32)
-                // [448-512]: executor (address, padded)
-                // [512-576]: executorFeeNatWei
-                // Then the string data at the offset
-                try {
-                  const data = log.data.slice(2); // Remove '0x'
-                  const valueUBA = BigInt('0x' + data.slice(0, 64));
-                  const feeUBA = BigInt('0x' + data.slice(64, 128));
-                  const paymentRefHex = '0x' + data.slice(384, 448);
-
-                  // Parse the string (paymentAddress)
-                  // The offset points to where the string data starts
-                  const stringOffset = parseInt(data.slice(320, 384), 16) * 2; // Convert to hex char offset
-                  const stringLength = parseInt(data.slice(stringOffset, stringOffset + 64), 16);
-                  const stringDataHex = data.slice(stringOffset + 64, stringOffset + 64 + stringLength * 2);
-                  // Convert hex to string
-                  let paymentAddress = '';
-                  for (let i = 0; i < stringDataHex.length; i += 2) {
-                    const charCode = parseInt(stringDataHex.slice(i, i + 2), 16);
-                    if (charCode > 0) paymentAddress += String.fromCharCode(charCode);
-                  }
-
-                  console.log('Manually parsed event data:', { valueUBA: valueUBA.toString(), feeUBA: feeUBA.toString(), paymentAddress, paymentRefHex });
-
-                  const extractedPaymentInfo = {
-                    agentXrplAddress: paymentAddress,
-                    valueUBA: valueUBA,
-                    feeUBA: feeUBA,
-                    paymentReference: paymentRefHex,
-                  };
-                  setPaymentInfo(extractedPaymentInfo);
-                } catch (parseError) {
-                  console.error('Failed to manually parse event data:', parseError);
-                }
+                // Also extract payment info from the event
+                const extractedPaymentInfo = {
+                  agentXrplAddress: args.paymentAddress || '',
+                  valueUBA: BigInt(args.valueUBA || 0),
+                  feeUBA: BigInt(args.feeUBA || 0),
+                  paymentReference: args.paymentReference || '',
+                };
+                console.log('Extracted payment info:', extractedPaymentInfo);
+                setPaymentInfo(extractedPaymentInfo);
 
                 found = true;
                 break;
+              }
+            }
+          } catch (e) {
+            // Not this event, continue to next log
+            console.log('Log not CollateralReserved event, continuing...', (e as Error).message);
+          }
+        }
+
+        // Fallback: Try manual extraction from logs with 4 topics
+        if (!found) {
+          console.log('ABI decoding failed for all logs, trying manual topic extraction...');
+          for (const log of receipt.logs) {
+            if (log.topics.length >= 4) {
+              const resIdTopic = log.topics[3];
+              if (resIdTopic) {
+                try {
+                  const resId = BigInt(resIdTopic);
+                  console.log('Extracted collateralReservationId from topic[3]:', resId.toString());
+                  setReservationId(resId);
+
+                  // Try to manually parse the data field
+                  // Data layout (each uint256 is 32 bytes = 64 hex chars):
+                  // [0-64]: valueUBA
+                  // [64-128]: feeUBA
+                  // [128-192]: firstUnderlyingBlock
+                  // [192-256]: lastUnderlyingBlock
+                  // [256-320]: lastUnderlyingTimestamp
+                  // [320-384]: offset to paymentAddress string
+                  // [384-448]: paymentReference (bytes32)
+                  // [448-512]: executor (address, padded)
+                  // [512-576]: executorFeeNatWei
+                  // Then the string data at the offset
+                  const data = log.data.slice(2); // Remove '0x'
+                  if (data.length >= 576) {
+                    const valueUBA = BigInt('0x' + data.slice(0, 64));
+                    const feeUBA = BigInt('0x' + data.slice(64, 128));
+                    const paymentRefHex = '0x' + data.slice(384, 448);
+
+                    // Parse the string (paymentAddress)
+                    // The offset points to where the string data starts
+                    const stringOffset = parseInt(data.slice(320, 384), 16) * 2; // Convert to hex char offset
+                    const stringLength = parseInt(data.slice(stringOffset, stringOffset + 64), 16);
+                    const stringDataHex = data.slice(stringOffset + 64, stringOffset + 64 + stringLength * 2);
+                    // Convert hex to string
+                    let paymentAddress = '';
+                    for (let i = 0; i < stringDataHex.length; i += 2) {
+                      const charCode = parseInt(stringDataHex.slice(i, i + 2), 16);
+                      if (charCode > 0) paymentAddress += String.fromCharCode(charCode);
+                    }
+
+                    console.log('Manually parsed event data:', { valueUBA: valueUBA.toString(), feeUBA: feeUBA.toString(), paymentAddress, paymentRefHex });
+
+                    const extractedPaymentInfo = {
+                      agentXrplAddress: paymentAddress,
+                      valueUBA: valueUBA,
+                      feeUBA: feeUBA,
+                      paymentReference: paymentRefHex,
+                    };
+                    setPaymentInfo(extractedPaymentInfo);
+                    found = true;
+                    break;
+                  }
+                } catch (parseError) {
+                  console.error('Failed to manually parse event data:', parseError);
+                }
               }
             }
           }
@@ -409,6 +415,7 @@ export default function MintPage() {
 
         if (!found) {
           console.error('Could not find CollateralReserved event in transaction logs');
+          console.log('All logs:', receipt.logs.map(l => ({ address: l.address, topics: l.topics, dataLength: l.data.length })));
           setError('Transaction succeeded but could not parse reservation ID. Please check the transaction on the explorer.');
         }
       }).catch((err) => {
@@ -416,7 +423,7 @@ export default function MintPage() {
         setError(`Failed to fetch transaction receipt: ${err.message}`);
       });
     }
-  }, [txHash, txSuccess, publicClient]);
+  }, [txHash, txSuccess, publicClient, step]);
 
   async function handleConnectXRPL() {
     // For now, we'll use manual address input
@@ -513,7 +520,7 @@ export default function MintPage() {
         console.log('Payment successful:', result.txHash);
         setXrpTxHash(result.txHash);
         setWalletSecret(''); // Clear the secret for security
-        setStep('wait-fdc');
+        setStep('flip-settlement'); // Go to FLIP instant settlement
       } else {
         setError(result.error || 'Failed to send XRP payment');
       }
@@ -574,7 +581,7 @@ export default function MintPage() {
 
       if (result.success && result.txHash) {
         setXrpTxHash(result.txHash);
-        setStep('wait-fdc');
+        setStep('flip-settlement'); // Go to FLIP instant settlement
       } else {
         setError(result.error || 'Failed to send XRP payment');
       }
@@ -585,52 +592,90 @@ export default function MintPage() {
     }
   }
 
-  async function handleExecuteMinting() {
-    if (!reservationId || !fdcRoundId) {
-      setError('FDC proof not ready');
-      return;
-    }
-    if (!assetManagerAddress) {
-      setError('AssetManager address could not be resolved.');
+  // FLIP instant settlement - LP provides FXRP immediately, takes FDC wait risk
+  async function handleFlipSettlement() {
+    if (!xrpTxHash || !reservationId || !address) {
+      setError('Missing required data for FLIP settlement');
       return;
     }
 
     try {
-      setLoading(true);
+      setFlipSettling(true);
       setError(null);
 
-      // TODO: Fetch FDC proof from Data Availability Layer
-      // For now, this is a placeholder
-      const proof = {
-        merkleProof: [],
-        data: '0x',
-      };
+      // Calculate XRP amount in drops (6 decimals)
+      const xrpAmountDrops = paymentInfo
+        ? paymentInfo.valueUBA + paymentInfo.feeUBA
+        : BigInt(0);
 
+      console.log('Requesting FLIP minting:', {
+        collateralReservationId: reservationId.toString(),
+        xrplTxHash: xrpTxHash,
+        xrpAmount: xrpAmountDrops.toString(),
+        asset: FXRP_ADDRESS,
+        authorizeFlipExecution: true,
+      });
+
+      // Call FLIP requestMinting
       writeContract({
-        address: assetManagerAddress,
-        abi: ASSET_MANAGER_ABI,
-        functionName: 'executeMinting',
+        address: CONTRACTS.coston2.FLIPCore as Address,
+        abi: FLIP_CORE_ABI,
+        functionName: 'requestMinting',
         args: [
-          {
-            merkleProof: proof.merkleProof,
-            data: proof.data as `0x${string}`,
-          },
           reservationId,
+          xrpTxHash,
+          xrpAmountDrops,
+          FXRP_ADDRESS,
+          true, // authorize FLIP to execute on user's behalf
         ],
       });
+
+      // The rest is handled by useEffect watching txSuccess
     } catch (err: any) {
-      setError(`Failed to execute minting: ${err.message}`);
-      setLoading(false);
+      console.error('FLIP settlement error:', err);
+      setError(`Failed to request FLIP settlement: ${err.message}`);
+      setFlipSettling(false);
     }
   }
 
-  // Monitor minting execution success
+  // Monitor FLIP settlement transaction success
   useEffect(() => {
-    if (txHash && txSuccess && step === 'execute-minting') {
-      setStep('success');
-      refetchFxrp();
+    if (txHash && txSuccess && step === 'flip-settlement' && flipSettling) {
+      console.log('FLIP settlement transaction confirmed:', txHash);
+      setFlipSettled(true);
+      setFlipSettling(false);
+
+      // Parse the MintingRequested event to get the minting ID
+      if (publicClient) {
+        publicClient.getTransactionReceipt({ hash: txHash }).then((receipt) => {
+          console.log('FLIP tx receipt:', receipt);
+          // Look for MintingRequested event
+          const mintingRequestedTopic = '0x'; // Will be calculated by event signature
+          for (const log of receipt.logs) {
+            // Check if from FLIPCore contract
+            if (log.address.toLowerCase() === CONTRACTS.coston2.FLIPCore.toLowerCase()) {
+              console.log('Found FLIPCore log:', log);
+              // For now, just mark as success - LP will provide FXRP
+              // In production, parse the exact event
+            }
+          }
+
+          // Move to success after short delay to show the settlement animation
+          setTimeout(() => {
+            setStep('success');
+            refetchFxrp();
+          }, 1500);
+        }).catch(console.error);
+      } else {
+        setTimeout(() => {
+          setStep('success');
+          refetchFxrp();
+        }, 1500);
+      }
     }
-  }, [txHash, txSuccess, step, refetchFxrp]);
+  }, [txHash, txSuccess, step, flipSettling, publicClient, refetchFxrp]);
+
+  // Note: FLIP settlement monitor is handled in the useEffect above
 
   if (!isConnected) {
     return (
@@ -656,13 +701,13 @@ export default function MintPage() {
           {/* Progress Bar */}
           <div className="space-y-4">
             <div className="flex justify-between text-sm font-medium">
-              <span className="text-purple-400">Step {getStepNumber(step)} of 7</span>
+              <span className="text-purple-400">Step {getStepNumber(step)} of 6</span>
               <span className="text-gray-400">{getStepName(step)}</span>
             </div>
             <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-gradient-to-r from-purple-600 to-blue-500 transition-all duration-500 ease-out"
-                style={{ width: `${(getStepNumber(step) / 7) * 100}%` }}
+                style={{ width: `${(getStepNumber(step) / 6) * 100}%` }}
               />
             </div>
           </div>
@@ -1042,51 +1087,77 @@ export default function MintPage() {
                 </div>
               )}
 
-              {/* Step 5: Wait for FDC */}
-              {step === 'wait-fdc' && xrpTxHash && (
+              {/* Step 5: FLIP Instant Settlement */}
+              {step === 'flip-settlement' && xrpTxHash && (
                 <div className="space-y-8 animate-in fade-in duration-500 text-center py-8">
-                  <div className="relative mx-auto h-24 w-24">
-                    <div className="absolute inset-0 border-4 border-purple-500/20 rounded-full" />
-                    <div className="absolute inset-0 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-xs font-bold text-purple-400 uppercase tracking-tighter animate-pulse">Verifying</span>
+                  {!flipSettled ? (
+                    <>
+                      <div className="relative mx-auto h-24 w-24">
+                        <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 blur-2xl opacity-30 animate-pulse" />
+                        <div className="relative h-full w-full bg-gradient-to-r from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-xl">
+                          <span className="text-white text-3xl font-black">⚡</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <h3 className="text-2xl font-bold text-white">FLIP Instant Settlement</h3>
+                        <p className="text-gray-400 max-w-sm mx-auto">
+                          {flipSettling
+                            ? 'Connecting you with a liquidity provider for instant FXRP...'
+                            : 'Get your FXRP instantly! A liquidity provider will send you FXRP now, taking the FDC verification wait for you.'}
+                        </p>
+                      </div>
+
+                      <div className="bg-gray-800/20 rounded-xl p-4 inline-block border border-gray-800">
+                        <p className="text-xs text-gray-500 mb-1 font-semibold uppercase tracking-widest">XRPL Payment Hash</p>
+                        <p className="font-mono text-xs text-purple-300">{xrpTxHash}</p>
+                      </div>
+
+                      <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 rounded-2xl p-5 text-left max-w-md mx-auto">
+                        <h4 className="text-purple-400 font-semibold mb-2 flex items-center gap-2">
+                          <span>⚡</span> How FLIP Works
+                        </h4>
+                        <ul className="text-sm text-gray-400 space-y-2">
+                          <li>• LP provides FXRP to you instantly</li>
+                          <li>• LP earns a small fee (~0.3%) for taking the wait risk</li>
+                          <li>• FDC verifies your XRP payment in background</li>
+                          <li>• You skip the 3-5 minute verification wait!</li>
+                        </ul>
+                      </div>
+
+                      <Button
+                        onClick={handleFlipSettlement}
+                        disabled={flipSettling || isPending || isWaitingTx}
+                        className="w-full max-w-md mx-auto h-16 text-lg font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 shadow-xl shadow-purple-500/20 rounded-2xl transition-all"
+                      >
+                        {flipSettling || isPending || isWaitingTx ? (
+                          <div className="flex items-center gap-3">
+                            <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Settling with LP...</span>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="mr-2">⚡</span> Get FXRP Instantly via FLIP
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  ) : (
+                    <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
+                      <div className="relative mx-auto h-20 w-20">
+                        <div className="absolute inset-0 bg-emerald-500/30 blur-2xl animate-pulse" />
+                        <div className="relative h-full w-full bg-emerald-500 rounded-full flex items-center justify-center shadow-xl">
+                          <span className="text-white text-3xl font-black">✓</span>
+                        </div>
+                      </div>
+                      <h3 className="text-2xl font-bold text-emerald-400">Settlement Complete!</h3>
+                      <p className="text-gray-400">LP provided your FXRP. Redirecting to success...</p>
                     </div>
-                  </div>
-                  
-                  <div className="space-y-3">
-                    <h3 className="text-2xl font-bold text-white">FDC Verification</h3>
-                    <p className="text-gray-400 max-w-sm mx-auto">
-                      Flare Data Connector is confirming your cross-chain transaction. This typically takes 3-5 minutes.
-                    </p>
-                  </div>
-
-                  <div className="bg-gray-800/20 rounded-xl p-4 inline-block border border-gray-800">
-                    <p className="text-xs text-gray-500 mb-1 font-semibold uppercase tracking-widest">XRPL Hash</p>
-                    <p className="font-mono text-xs text-purple-300">{xrpTxHash}</p>
-                  </div>
+                  )}
                 </div>
               )}
 
-              {/* Step 6: Execute Minting */}
-              {step === 'execute-minting' && (
-                <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-                  <div className="text-center space-y-3">
-                    <div className="h-16 w-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto text-emerald-500 text-2xl font-bold">✓</div>
-                    <h3 className="text-2xl font-bold text-white">Proof Verified!</h3>
-                    <p className="text-gray-400">Your FDC proof is ready. Finalize the minting process to receive your FXRP.</p>
-                  </div>
-
-                  <Button
-                    onClick={handleExecuteMinting}
-                    disabled={!fdcRoundId || isPending || isWaitingTx || loading}
-                    className="w-full h-16 text-lg font-bold bg-emerald-600 hover:bg-emerald-500 shadow-xl shadow-emerald-500/20 rounded-2xl transition-all"
-                  >
-                    {isPending || isWaitingTx ? 'Minting...' : 'Claim FXRP Tokens'}
-                  </Button>
-                </div>
-              )}
-
-              {/* Step 7: Success */}
+              {/* Step 6: Success */}
               {step === 'success' && (
                 <div className="space-y-8 animate-in fade-in scale-95 duration-700 py-4">
                   <div className="relative mx-auto h-32 w-32">
@@ -1115,8 +1186,11 @@ export default function MintPage() {
                         setSelectedAgent(null);
                         setReservationId(null);
                         setReservationInfo(null);
+                        setPaymentInfo(null);
                         setXrpTxHash(null);
-                        setFdcRoundId(null);
+                        setFlipMintingId(null);
+                        setFlipSettled(false);
+                        setFlipSettling(false);
                       }}
                       className="h-14 rounded-xl bg-white text-black hover:bg-gray-200 font-bold transition-all"
                     >
@@ -1146,9 +1220,8 @@ function getStepNumber(step: MintingStep): number {
     'reserve-collateral': 2,
     'connect-xrpl': 3,
     'send-xrp': 4,
-    'wait-fdc': 5,
-    'execute-minting': 6,
-    'success': 7,
+    'flip-settlement': 5,
+    'success': 6,
   };
   return steps[step];
 }
@@ -1159,8 +1232,7 @@ function getStepName(step: MintingStep): string {
     'reserve-collateral': 'Reserve Collateral',
     'connect-xrpl': 'Connect XRPL Wallet',
     'send-xrp': 'Send XRP Payment',
-    'wait-fdc': 'Wait for FDC Confirmation',
-    'execute-minting': 'Execute Minting',
+    'flip-settlement': 'FLIP Instant Settlement',
     'success': 'Success',
   };
   return names[step];

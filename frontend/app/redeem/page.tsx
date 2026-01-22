@@ -130,8 +130,10 @@ export default function RedeemPage() {
   const [redemptionId, setRedemptionId] = useState<bigint | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsApproval, setNeedsApproval] = useState(false);
-  const [lastAction, setLastAction] = useState<'approve' | 'redeem' | null>(null);
+  const [lastAction, setLastAction] = useState<'approve' | 'redeem' | 'process' | null>(null);
   const [receiptTokenIds, setReceiptTokenIds] = useState<bigint[]>([]);
+  const [pendingRedemptions, setPendingRedemptions] = useState<{id: bigint, amount: bigint, xrplAddress: string}[]>([]);
+  const [isOwner, setIsOwner] = useState(false);
 
   const { writeContract, data: hash, isPending, error: writeError, reset: resetWrite } = useWriteContract();
   
@@ -214,6 +216,71 @@ export default function RedeemPage() {
       refetchInterval: 10000, // Poll every 10 seconds to track status changes
     },
   });
+
+  // Check if connected wallet is the FLIPCore owner
+  const { data: ownerAddress } = useReadContract({
+    address: CONTRACTS.coston2.FLIPCore,
+    abi: FLIP_CORE_ABI,
+    functionName: 'owner',
+    query: {
+      enabled: !!address && isConnected,
+    },
+  });
+
+  // Get next redemption ID to know how many redemptions exist
+  const { data: nextRedemptionId } = useReadContract({
+    address: CONTRACTS.coston2.FLIPCore,
+    abi: FLIP_CORE_ABI,
+    functionName: 'nextRedemptionId',
+    query: {
+      enabled: !!address && isConnected,
+      refetchInterval: 15000,
+    },
+  });
+
+  // Check if user is owner
+  useEffect(() => {
+    if (ownerAddress && address) {
+      setIsOwner(ownerAddress.toLowerCase() === address.toLowerCase());
+    }
+  }, [ownerAddress, address]);
+
+  // Fetch pending redemptions (status = 0 means Pending)
+  useEffect(() => {
+    if (!publicClient || !nextRedemptionId || !isOwner) return;
+
+    const fetchPendingRedemptions = async () => {
+      const pending: {id: bigint, amount: bigint, xrplAddress: string}[] = [];
+      const maxToCheck = Math.min(Number(nextRedemptionId), 20); // Check last 20 redemptions
+
+      for (let i = Number(nextRedemptionId) - 1; i >= Math.max(0, Number(nextRedemptionId) - maxToCheck); i--) {
+        try {
+          const data = await publicClient.readContract({
+            address: CONTRACTS.coston2.FLIPCore,
+            abi: FLIP_CORE_ABI,
+            functionName: 'redemptions',
+            args: [BigInt(i)],
+          }) as any[];
+
+          // status is at index 6, amount at index 2, xrplAddress at index 9
+          const status = Number(data[6]);
+          if (status === 0) { // Pending status
+            pending.push({
+              id: BigInt(i),
+              amount: data[2] as bigint,
+              xrplAddress: data[9] as string,
+            });
+          }
+        } catch (e) {
+          console.error(`Error fetching redemption ${i}:`, e);
+        }
+      }
+
+      setPendingRedemptions(pending);
+    };
+
+    fetchPendingRedemptions();
+  }, [publicClient, nextRedemptionId, isOwner]);
 
   // Status names mapping
   const STATUS_NAMES = [
@@ -435,6 +502,36 @@ export default function RedeemPage() {
     }
   };
 
+  // Process a pending redemption (owner only)
+  const handleProcessRedemption = async (redemptionIdToProcess: bigint) => {
+    if (!isOwner || !isConnected) {
+      setError('Only the contract owner can process redemptions');
+      return;
+    }
+
+    try {
+      setError(null);
+      setLastAction('process');
+
+      // Default scoring parameters for high confidence
+      const priceVolatility = BigInt(10000); // 1%
+      const agentSuccessRate = BigInt(990000); // 99%
+      const agentStake = BigInt('200000000000000000000000'); // 200k tokens
+
+      await writeContract({
+        address: CONTRACTS.coston2.FLIPCore,
+        abi: FLIP_CORE_ABI,
+        functionName: 'ownerProcessRedemption',
+        args: [redemptionIdToProcess, priceVolatility, agentSuccessRate, agentStake],
+        gas: BigInt(800000),
+      });
+    } catch (error: any) {
+      console.error('Error processing redemption:', error);
+      setError(error?.message || 'Failed to process redemption');
+      setLastAction(null);
+    }
+  };
+
   const explorerUrl = CONTRACTS.networks.coston2.explorer;
 
   return (
@@ -575,6 +672,54 @@ export default function RedeemPage() {
                     </div>
                   )}
 
+                  {/* Owner: Pending Redemptions to Process */}
+                  {isOwner && pendingRedemptions.length > 0 && (
+                    <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-3xl p-8 space-y-6">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">⚙️</span>
+                          <h3 className="text-lg font-bold text-white">Pending Redemptions (Owner)</h3>
+                        </div>
+                        <div className="h-8 w-8 bg-yellow-500/20 rounded-full flex items-center justify-center text-yellow-400 font-bold text-xs">
+                          {pendingRedemptions.length}
+                        </div>
+                      </div>
+
+                      <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 text-sm">
+                        <p className="text-yellow-300 mb-2 font-semibold">Action Required</p>
+                        <p className="text-gray-400">
+                          These redemptions are awaiting processing. Process them to create escrows and enable XRP delivery.
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        {pendingRedemptions.map((redemption) => (
+                          <div key={redemption.id.toString()} className="bg-gray-900/50 rounded-2xl border border-gray-800 p-6 space-y-4">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-bold text-gray-400 uppercase tracking-widest font-mono">
+                                Redemption #{redemption.id.toString()}
+                              </span>
+                              <span className="text-[10px] px-3 py-1 bg-yellow-500/10 text-yellow-400 rounded-full font-bold uppercase">
+                                Pending
+                              </span>
+                            </div>
+                            <div className="text-sm text-gray-400">
+                              <p>Amount: <span className="text-white font-mono">{decimals !== undefined ? formatUnits(redemption.amount, decimals) : '...'} FXRP</span></p>
+                              <p>XRPL: <span className="text-blue-300 font-mono text-xs">{redemption.xrplAddress}</span></p>
+                            </div>
+                            <Button
+                              className="w-full h-12 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-xl transition-all"
+                              onClick={() => handleProcessRedemption(redemption.id)}
+                              disabled={isPending || isConfirming}
+                            >
+                              {isPending || isConfirming ? 'Processing...' : 'Process Redemption'}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {redemptionData && decimals !== undefined && (
                     <div className="bg-blue-500/5 border border-blue-500/20 rounded-3xl p-8 space-y-6">
                       <div className="flex justify-between items-center">
@@ -620,26 +765,36 @@ export default function RedeemPage() {
                   )}
 
                   {receiptBalance !== undefined && receiptBalance > BigInt(0) && (
-                    <div className="bg-purple-500/5 border border-purple-500/20 rounded-3xl p-8 space-y-6">
+                    <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-3xl p-8 space-y-6">
                       <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest">Settlement Receipts</h3>
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">⚡</span>
+                          <h3 className="text-lg font-bold text-white">Your Settlement Receipts</h3>
+                        </div>
                         <div className="h-8 w-8 bg-purple-500/20 rounded-full flex items-center justify-center text-purple-400 font-bold text-xs">
                           {receiptBalance.toString()}
                         </div>
                       </div>
 
+                      <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 text-sm">
+                        <p className="text-purple-300 mb-2 font-semibold">FLIP Instant Settlement Available!</p>
+                        <p className="text-gray-400">
+                          Get your XRP instantly with a ~0.3% fee, or wait for FDC verification (~3-5 min) for the full amount.
+                        </p>
+                      </div>
+
                       {receiptTokenIds.length > 0 && (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                           {receiptTokenIds.map((tokenId) => (
-                            <div key={tokenId.toString()} className="bg-gray-800/30 rounded-2xl border border-gray-800 p-6 space-y-4 transition-all hover:bg-gray-800/50">
+                            <div key={tokenId.toString()} className="bg-gray-900/50 rounded-2xl border border-gray-800 p-6 space-y-5 transition-all hover:border-gray-700">
                               <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest font-mono">Receipt ID #{tokenId.toString()}</span>
-                                <span className="text-[10px] px-2 py-1 bg-purple-500/10 text-purple-400 rounded-full font-bold">READY</span>
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest font-mono">Receipt #{tokenId.toString()}</span>
+                                <span className="text-[10px] px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full font-bold uppercase">Claimable</span>
                               </div>
-                              <div className="grid grid-cols-2 gap-3">
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <Button
-                                  variant="outline"
-                                  className="h-12 border-gray-700 hover:bg-white hover:text-black transition-all"
+                                  className="h-14 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-purple-500/20"
                                   onClick={async () => {
                                     try {
                                       setError(null);
@@ -655,11 +810,11 @@ export default function RedeemPage() {
                                   }}
                                   disabled={isPending || isConfirming}
                                 >
-                                  Claim with Haircut
+                                  <span className="mr-2">⚡</span> Instant FLIP (~99.7%)
                                 </Button>
                                 <Button
                                   variant="outline"
-                                  className="h-12 border-gray-700 hover:bg-purple-500 hover:text-white hover:border-purple-500 transition-all"
+                                  className="h-14 border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white rounded-xl transition-all"
                                   onClick={async () => {
                                     try {
                                       setError(null);
@@ -678,6 +833,10 @@ export default function RedeemPage() {
                                   Wait for FDC (100%)
                                 </Button>
                               </div>
+
+                              <p className="text-[10px] text-gray-500 text-center">
+                                FLIP pays you instantly • LP earns the small fee for taking the FDC wait risk
+                              </p>
                             </div>
                           ))}
                         </div>
@@ -686,17 +845,17 @@ export default function RedeemPage() {
                   )}
 
                   <div className="bg-gray-800/20 rounded-3xl p-8 border border-gray-800/50 space-y-6">
-                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest text-center">Protocol Timeline</h4>
+                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest text-center">How FLIP Redemption Works</h4>
                     <div className="space-y-6 relative">
                       {/* Vertical line */}
-                      <div className="absolute left-3 top-2 bottom-2 w-px bg-gradient-to-b from-emerald-500 via-purple-500 to-yellow-500 opacity-20" />
-                      
+                      <div className="absolute left-3 top-2 bottom-2 w-px bg-gradient-to-b from-emerald-500 via-purple-500 to-blue-500 opacity-20" />
+
                       <div className="flex gap-4 items-start relative">
                         <div className="h-6 w-6 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center flex-shrink-0 z-10">
                           <span className="text-emerald-500 text-[10px]">1</span>
                         </div>
                         <p className="text-sm text-gray-400 leading-relaxed pt-0.5">
-                          <strong className="text-white">Immediate Burn:</strong> Your FXRP tokens are securely burned to the protocol dead address.
+                          <strong className="text-white">Request Redemption:</strong> Your FXRP is locked and price is captured via FTSO oracle.
                         </p>
                       </div>
 
@@ -705,7 +864,7 @@ export default function RedeemPage() {
                           <span className="text-blue-500 text-[10px]">2</span>
                         </div>
                         <p className="text-sm text-gray-400 leading-relaxed pt-0.5">
-                          <strong className="text-white">FTSO Lock:</strong> Price is immediately locked via Flare Time Series Oracle to prevent volatility.
+                          <strong className="text-white">LP Matching:</strong> A liquidity provider is matched to fulfill your redemption instantly.
                         </p>
                       </div>
 
@@ -714,8 +873,19 @@ export default function RedeemPage() {
                           <span className="text-purple-500 text-[10px]">3</span>
                         </div>
                         <p className="text-sm text-gray-400 leading-relaxed pt-0.5">
-                          <strong className="text-white">NFT Minting:</strong> A unique Settlement Receipt NFT is minted, representing your claim.
+                          <strong className="text-white">Settlement Receipt:</strong> You receive an NFT representing your XRP claim with two options:
                         </p>
+                      </div>
+
+                      <div className="ml-10 grid grid-cols-2 gap-4 text-xs">
+                        <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20">
+                          <p className="text-purple-400 font-bold mb-1">⚡ Instant FLIP</p>
+                          <p className="text-gray-500">Get ~99.7% now. LP takes FDC wait risk for a small fee.</p>
+                        </div>
+                        <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
+                          <p className="text-gray-300 font-bold mb-1">Wait for FDC</p>
+                          <p className="text-gray-500">Get 100% after FDC verification (~3-5 minutes).</p>
+                        </div>
                       </div>
 
                       <div className="flex gap-4 items-start relative">
@@ -723,7 +893,7 @@ export default function RedeemPage() {
                           <span className="text-yellow-500 text-[10px]">4</span>
                         </div>
                         <p className="text-sm text-gray-400 leading-relaxed pt-0.5">
-                          <strong className="text-white">Final Settlement:</strong> After FDC verification (~24h), native XRP is sent to your address.
+                          <strong className="text-white">XRP Delivery:</strong> Native XRP is sent to your XRPL address via the LP network.
                         </p>
                       </div>
                     </div>

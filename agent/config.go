@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
 
@@ -15,10 +17,11 @@ type Config struct {
 }
 
 type FlareConfig struct {
-	RPCURL            string `yaml:"rpc_url"`
-	ChainID           int64  `yaml:"chain_id"`
-	FLIPCoreAddress   string `yaml:"flip_core_address"`
+	RPCURL             string `yaml:"rpc_url"`
+	ChainID            int64  `yaml:"chain_id"`
+	FLIPCoreAddress    string `yaml:"flip_core_address"`
 	EscrowVaultAddress string `yaml:"escrow_vault_address"`
+	PrivateKey         string // Loaded from PRIVATE_KEY env var (not in YAML)
 }
 
 type XRPLConfig struct {
@@ -42,6 +45,19 @@ type AgentConfig struct {
 }
 
 func LoadConfig(path string) (*Config, error) {
+	// Load .env file from project root (one level up from agent directory)
+	configDir := filepath.Dir(path)
+	envPath := filepath.Join(configDir, "..", ".env")
+	if err := godotenv.Load(envPath); err != nil {
+		// Try current directory as fallback
+		if err := godotenv.Load(".env"); err != nil {
+			// Try project root directly
+			if err := godotenv.Load("../.env"); err != nil {
+				fmt.Printf("Warning: Could not load .env file: %v\n", err)
+			}
+		}
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -52,6 +68,9 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// Load private key from environment variable
+	config.Flare.PrivateKey = os.Getenv("PRIVATE_KEY")
+
 	// Validate required fields
 	if config.Flare.RPCURL == "" {
 		return nil, fmt.Errorf("flare.rpc_url is required")
@@ -61,6 +80,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if config.XRPL.WalletSeed == "" || config.XRPL.WalletSeed == "sYOUR_WALLET_SEED_HERE" {
 		return nil, fmt.Errorf("xrpl.wallet_seed must be set")
+	}
+	if config.Flare.PrivateKey == "" {
+		fmt.Println("Warning: PRIVATE_KEY not set in .env - automatic redemption processing disabled")
 	}
 
 	return &config, nil

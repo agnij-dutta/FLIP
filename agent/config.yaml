@@ -1,16 +1,19 @@
 # FLIP Agent Configuration
 
 # Flare Network Configuration
+# NOTE: PRIVATE_KEY is loaded from ../.env file (project root)
 flare:
   rpc_url: "https://coston2-api.flare.network/ext/C/rpc"
   chain_id: 114
-  flip_core_address: "0x162Ba31F4868eF67F3B4dA6fb454e47685c5CF15"
-  escrow_vault_address: "0x414319C341F9f63e92652ee5e2B1231E675F455e"
+  flip_core_address: "0xCb04Fa844Fa9C39eD90ed4b2F16263D2A58790ED"
+  escrow_vault_address: "0x9e052815577D0c8b373EA1e4b248f3fB330439CF"
+  lp_registry_address: "0x14F5176FD5FCaEA3C9fcba8eA959d254F015810A"
+  settlement_receipt_address: "0x990446817710a70b2F7D406fa9B1C0E7D58b5573"
 
 # XRPL Configuration
 xrpl:
   testnet_ws: "wss://s.altnet.rippletest.net:51233"
-  testnet_rpc: "https://s.altnet.rippletest.net:51233"
+  testnet_rpc: "https://s.altnet.rippletest.net:51234"
   # Agent XRPL wallet seed (for testnet)
   # WARNING: Never commit real seeds to git
   wallet_seed: "sEdVpVRzwnzVcL4GNGQVzDJuWMZGtp6"

@@ -7,14 +7,13 @@ async function sendPayment(seed, destination, amountDrops, memoData) {
   await client.connect();
 
   const wallet = xrpl.Wallet.fromSeed(seed);
-  
-  const amountXRP = parseFloat(amountDrops) / 1_000_000;
-  
+
+  // Amount must be in drops (string) for XRP payments
   const payment = {
     TransactionType: 'Payment',
     Account: wallet.address,
     Destination: destination,
-    Amount: amountXRP.toString(),
+    Amount: amountDrops.toString(),  // Already in drops
   };
 
   if (memoData) {

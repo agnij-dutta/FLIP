@@ -28,6 +28,16 @@ type EscrowCreatedEvent struct {
 	PaymentReference string // Generated from redemption ID
 }
 
+// RedemptionRequestedEvent represents a RedemptionRequested event from FLIPCore
+type RedemptionRequestedEvent struct {
+	RedemptionID *big.Int
+	User         common.Address
+	Asset        common.Address
+	Amount       *big.Int
+	XRPLAddress  string
+	Timestamp    *big.Int
+}
+
 // RedemptionData represents redemption struct from FLIPCore
 type RedemptionData struct {
 	User               common.Address
@@ -109,10 +119,17 @@ func (em *EventMonitor) Monitor(ctx context.Context, eventChan chan<- EscrowCrea
 				continue
 			}
 
+			// Limit block range to avoid RPC errors (max 30 blocks per query)
+			const maxBlockRange uint64 = 30
+			toBlock := currentBlock
+			if toBlock-em.lastBlock > maxBlockRange {
+				toBlock = em.lastBlock + maxBlockRange
+			}
+
 			// Query for EscrowCreated events
 			query := ethereum.FilterQuery{
 				FromBlock: big.NewInt(int64(em.lastBlock)),
-				ToBlock:   big.NewInt(int64(currentBlock)),
+				ToBlock:   big.NewInt(int64(toBlock)),
 				Addresses: []common.Address{em.flipCore},
 				Topics:    [][]common.Hash{{eventTopic}},
 			}
@@ -144,9 +161,143 @@ func (em *EventMonitor) Monitor(ctx context.Context, eventChan chan<- EscrowCrea
 				eventChan <- *event
 			}
 
-			em.lastBlock = currentBlock
+			em.lastBlock = toBlock
 		}
 	}
+}
+
+// MonitorRedemptionRequests monitors for RedemptionRequested events (new redemptions that need processing)
+func (em *EventMonitor) MonitorRedemptionRequests(ctx context.Context, eventChan chan<- RedemptionRequestedEvent) error {
+	// RedemptionRequested event signature
+	// event RedemptionRequested(uint256 indexed redemptionId, address indexed user, address indexed asset, uint256 amount, string xrplAddress, uint256 timestamp)
+	eventSignature := []byte("RedemptionRequested(uint256,address,address,uint256,string,uint256)")
+	eventTopic := common.BytesToHash(crypto.Keccak256(eventSignature))
+
+	log.Info().
+		Uint64("from_block", em.lastBlock).
+		Str("flip_core", em.flipCore.Hex()).
+		Msg("Starting RedemptionRequested event monitoring")
+
+	ticker := time.NewTicker(em.pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			// Get current block
+			currentBlock, err := em.client.BlockNumber(ctx)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to get block number")
+				continue
+			}
+
+			if currentBlock <= em.lastBlock {
+				continue
+			}
+
+			// Limit block range to avoid RPC errors (max 30 blocks per query)
+			const maxBlockRange uint64 = 30
+			toBlock := currentBlock
+			if toBlock-em.lastBlock > maxBlockRange {
+				toBlock = em.lastBlock + maxBlockRange
+			}
+
+			// Query for RedemptionRequested events
+			query := ethereum.FilterQuery{
+				FromBlock: big.NewInt(int64(em.lastBlock)),
+				ToBlock:   big.NewInt(int64(toBlock)),
+				Addresses: []common.Address{em.flipCore},
+				Topics:    [][]common.Hash{{eventTopic}},
+			}
+
+			logs, err := em.client.FilterLogs(ctx, query)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to filter RedemptionRequested logs")
+				continue
+			}
+
+			// Process events
+			for _, vLog := range logs {
+				event, err := em.parseRedemptionRequestedEvent(vLog)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to parse RedemptionRequested event")
+					continue
+				}
+
+				eventChan <- *event
+			}
+
+			// Note: Don't update lastBlock here - it's updated by the EscrowCreated monitor
+		}
+	}
+}
+
+// parseRedemptionRequestedEvent parses a RedemptionRequested event from a log
+func (em *EventMonitor) parseRedemptionRequestedEvent(vLog types.Log) (*RedemptionRequestedEvent, error) {
+	// Event signature: RedemptionRequested(uint256 indexed redemptionId, address indexed user, address indexed asset, uint256 amount, string xrplAddress, uint256 timestamp)
+	// Topics: [event signature, redemptionId, user, asset]
+	// Data: [amount, xrplAddress (dynamic), timestamp]
+
+	if len(vLog.Topics) < 4 {
+		return nil, fmt.Errorf("invalid event log: insufficient topics")
+	}
+
+	redemptionID := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+	user := common.BytesToAddress(vLog.Topics[2].Bytes())
+	asset := common.BytesToAddress(vLog.Topics[3].Bytes())
+
+	// Parse data using ABI decoder for dynamic string
+	const redemptionRequestedABIJSON = `[{
+		"anonymous": false,
+		"inputs": [
+			{"indexed": true, "name": "redemptionId", "type": "uint256"},
+			{"indexed": true, "name": "user", "type": "address"},
+			{"indexed": true, "name": "asset", "type": "address"},
+			{"indexed": false, "name": "amount", "type": "uint256"},
+			{"indexed": false, "name": "xrplAddress", "type": "string"},
+			{"indexed": false, "name": "timestamp", "type": "uint256"}
+		],
+		"name": "RedemptionRequested",
+		"type": "event"
+	}]`
+
+	parsed, err := abi.JSON(strings.NewReader(redemptionRequestedABIJSON))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	// Unpack non-indexed data
+	eventData := make(map[string]interface{})
+	err = parsed.UnpackIntoMap(eventData, "RedemptionRequested", vLog.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack event data: %w", err)
+	}
+
+	amount, ok := eventData["amount"].(*big.Int)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast amount")
+	}
+
+	xrplAddress, ok := eventData["xrplAddress"].(string)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast xrplAddress")
+	}
+
+	timestamp, ok := eventData["timestamp"].(*big.Int)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast timestamp")
+	}
+
+	return &RedemptionRequestedEvent{
+		RedemptionID: redemptionID,
+		User:         user,
+		Asset:        asset,
+		Amount:       amount,
+		XRPLAddress:  xrplAddress,
+		Timestamp:    timestamp,
+	}, nil
 }
 
 // parseEscrowCreatedEvent parses an EscrowCreated event from a log
