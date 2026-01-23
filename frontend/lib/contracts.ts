@@ -1,14 +1,15 @@
-// FLIP v4 Contract Addresses (Coston2 Testnet - Bidirectional FLIP)
+// FLIP v5 Contract Addresses (Coston2 Testnet - BlazeSwap Backstop)
 export const CONTRACTS = {
   coston2: {
-    FLIPCore: '0x06A84C4e441eDF8B8E1895d3166d140760FF2a39',
-    EscrowVault: '0xa51FA950a5a7176D8a2fFfB26bf180fCd97102d5',
-    SettlementReceipt: '0x1842f9FB8C06fC3db65D2f163080833300766205',
-    LiquidityProviderRegistry: '0xC868026c361F3865100b685A8Efaf62Ff4250F1A',
-    OperatorRegistry: '0xF206fb41b4a6a6729248d457EE3E62E17483A047',
-    PriceHedgePool: '0xdbe6ca758Ec74cA5EA44A48568Bb51Fd3154993A',
-    OracleRelay: '0xc9508412aEa096B3a9540ff148d992dB6dE6db6D',
-    FtsoV2Adapter: '0xd3Cf81a38Dd815d31E31429b95A45eDc80D2ea6c',
+    FLIPCore: '0x5743737990221c92769D3eF641de7B633cd0E519',
+    EscrowVault: '0xF3995d7766D807EFeE60769D45973FfC176E1b0c',
+    SettlementReceipt: '0x159dCc41173bFA5924DdBbaAf14615E66aa7c6Ec',
+    LiquidityProviderRegistry: '0xbc8423cd34653b1D64a8B54C4D597d90C4CEe100',
+    OperatorRegistry: '0x1e6DDfcA83c483c79C82230Ea923C57c1ef1A626',
+    PriceHedgePool: '0x4d4B47B0EA1Ca02Cc382Ace577A20580864a24e2',
+    OracleRelay: '0x4FcF689B7E70ad80714cA7e977Eb9de85064759d',
+    FtsoV2Adapter: '0x82B8723D957Eb2a2C214637552255Ded46e2664D',
+    BlazeFLIPVault: '0x678D95C2d75289D4860cdA67758CB9BFdac88611',
     // FAssets (Coston2 Testnet)
     FXRP: '0x0b6A3645c240605887a5532109323A3E12273dc7', // FXRP Token from Asset Manager
   },
@@ -193,3 +194,164 @@ export const FLIP_CORE_ABI = [
   },
 ] as const;
 
+// BlazeFLIPVault ABI
+export const BLAZE_VAULT_ABI = [
+  {
+    inputs: [],
+    name: 'deposit',
+    outputs: [{ name: 'sharesReceived', type: 'uint256' }],
+    stateMutability: 'payable',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: '_shares', type: 'uint256' }],
+    name: 'withdraw',
+    outputs: [{ name: 'amountReceived', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'claimEarnings',
+    outputs: [{ name: 'earned', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'rebalance',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'sharePrice',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: '_depositor', type: 'address' }],
+    name: 'balanceOfUnderlying',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: '', type: 'address' }],
+    name: 'shares',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'totalShares',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'backstopEnabled',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'allocationRatio',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'totalHaircutsEarned',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: '_depositor', type: 'address' }],
+    name: 'getPendingEarnings',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: '', type: 'address' }],
+    name: 'depositTimestamp',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'minDepositDelay',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'deployedToFlip',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'getVaultStats',
+    outputs: [
+      { name: 'totalAssetsOut', type: 'uint256' },
+      { name: 'totalSharesOut', type: 'uint256' },
+      { name: 'deployedToFlipOut', type: 'uint256' },
+      { name: 'deployedToMintingOut', type: 'uint256' },
+      { name: 'idleBalanceOut', type: 'uint256' },
+      { name: 'targetDeploymentOut', type: 'uint256' },
+      { name: 'needsRebalanceOut', type: 'bool' },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: 'depositor', type: 'address' },
+      { indexed: false, name: 'amount', type: 'uint256' },
+      { indexed: false, name: 'sharesReceived', type: 'uint256' },
+    ],
+    name: 'Deposited',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: 'depositor', type: 'address' },
+      { indexed: false, name: 'shares', type: 'uint256' },
+      { indexed: false, name: 'amountReceived', type: 'uint256' },
+    ],
+    name: 'Withdrawn',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: 'depositor', type: 'address' },
+      { indexed: false, name: 'amount', type: 'uint256' },
+    ],
+    name: 'EarningsClaimed',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: false, name: 'deployedAfter', type: 'uint256' },
+      { indexed: false, name: 'idleAfter', type: 'uint256' },
+    ],
+    name: 'Rebalanced',
+    type: 'event',
+  },
+] as const;

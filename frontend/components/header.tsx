@@ -37,6 +37,7 @@ function HeaderContent() {
           <Link href="/mint" className="text-gray-300 hover:text-white">Mint</Link>
           <Link href="/redeem" className="text-gray-300 hover:text-white">Redeem</Link>
           <Link href="/lp" className="text-gray-300 hover:text-white">LP Dashboard</Link>
+          <Link href="/vault" className="text-gray-300 hover:text-white">Vault</Link>
           <Link href="/status" className="text-gray-300 hover:text-white">Status</Link>
         </nav>
         <ConnectButton />
@@ -48,8 +49,8 @@ function HeaderContent() {
 function HeaderSkeleton() {
   return (
     <div className="relative">
-      <SimpleNavbar 
-        title="FLIP Protocol" 
+      <SimpleNavbar
+        title="FLIP Protocol"
         userName={undefined}
         userImage={undefined}
       />
@@ -59,6 +60,7 @@ function HeaderSkeleton() {
           <Link href="/mint" className="text-gray-300 hover:text-white">Mint</Link>
           <Link href="/redeem" className="text-gray-300 hover:text-white">Redeem</Link>
           <Link href="/lp" className="text-gray-300 hover:text-white">LP Dashboard</Link>
+          <Link href="/vault" className="text-gray-300 hover:text-white">Vault</Link>
           <Link href="/status" className="text-gray-300 hover:text-white">Status</Link>
         </nav>
         <div className="h-10 w-32 bg-gray-700 rounded-lg animate-pulse" />
