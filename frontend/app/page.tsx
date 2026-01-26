@@ -1,37 +1,30 @@
 'use client';
 
 import { Header } from "@/components/header";
-import { HeroSection } from "@/components/hero-section";
+import { HeroDitheringCard } from "@/components/ui/hero-dithering-card";
 import { FeaturesSection } from "@/components/features-section";
-import Link from "next/link";
+import { StackedCircularFooter } from "@/components/ui/stacked-circular-footer";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-[#0b0f1f] via-black to-black text-white selection:bg-purple-500/30">
+    <main className="min-h-screen bg-white dark:bg-gray-950 relative">
+      {/* Subtle noise texture overlay */}
+      <div className="noise-overlay" />
+
+      {/* Background gradient mesh */}
+      <div className="fixed inset-0 gradient-mesh pointer-events-none" />
+
       {/* Header */}
       <Header />
-      
-      {/* Hero Section with sticky background */}
-      <HeroSection />
-      
+
+      {/* Hero Section */}
+      <HeroDitheringCard />
+
       {/* Features Section */}
       <FeaturesSection />
 
-      {/* Footer with FDC message */}
-      <footer className="bg-black/40 border-t border-gray-800/60 py-8">
-        <div className="container mx-auto px-4 text-center">
-          <p className="text-gray-400 mb-4">
-            🔒 <strong className="text-white">FDC is the final judge.</strong> FLIP only changes when users get paid.
-          </p>
-          <div className="flex justify-center gap-6 text-sm text-gray-500">
-            <Link href="/status" className="hover:text-white transition">Status</Link>
-            <Link href="/redeem" className="hover:text-white transition">Redeem</Link>
-            <a href="https://coston2-explorer.flare.network" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">
-              Explorer
-            </a>
-          </div>
-        </div>
-      </footer>
+      {/* Premium Footer */}
+      <StackedCircularFooter />
     </main>
   );
 }

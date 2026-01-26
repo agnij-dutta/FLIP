@@ -8,8 +8,7 @@ import { parseUnits, formatUnits, Address } from 'viem';
 import { CONTRACTS } from '@/lib/contracts';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { TrendingUp, Wallet, Clock, Percent, AlertCircle, CheckCircle, Loader2, ExternalLink, PiggyBank, ArrowDownToLine } from "lucide-react";
 
 // LiquidityProviderRegistry ABI
 const LP_REGISTRY_ABI = [
@@ -156,187 +155,328 @@ export default function LPDashboard() {
 
   if (!isConnected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#0b0f1f] via-black to-black">
+      <main className="min-h-screen bg-gray-50">
         <Header />
-        <div className="container mx-auto px-4 py-16">
-          <Card className="bg-gray-900/60 border-gray-800 text-white">
-            <CardContent className="pt-6">
-              <p className="text-center text-gray-400">Please connect your wallet to manage LP positions</p>
+        <div className="bg-white border-b border-gray-100">
+          <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
+            <div className="text-center">
+              <span className="section-label">Liquidity Provider</span>
+              <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mt-4 mb-4">
+                LP <span className="text-gradient">Dashboard</span>
+              </h1>
+              <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+                Earn fees by providing liquidity for instant FAsset redemptions.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="max-w-4xl mx-auto px-4 py-12">
+          <Card>
+            <CardContent className="pt-12 pb-12">
+              <div className="text-center">
+                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
+                  <Wallet className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Connect Your Wallet</h3>
+                <p className="text-gray-500">Please connect your wallet to manage LP positions.</p>
+              </div>
             </CardContent>
           </Card>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0b0f1f] via-black to-black text-white">
+    <main className="min-h-screen bg-gray-50">
       <Header />
-      <div className="container mx-auto px-4 py-16">
-        <div className="max-w-4xl mx-auto space-y-6">
-          <Card className="bg-gray-900/60 border-gray-800 backdrop-blur-xl shadow-2xl shadow-purple-500/10">
-            <CardHeader className="border-b border-gray-800/60 pb-6">
-              <CardTitle className="text-3xl font-bold">Liquidity Provider Dashboard</CardTitle>
-              <CardDescription className="text-gray-400">
-                Provide liquidity and earn haircut fees on redemptions.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6 pt-6">
-              {error && (
-                <div className="bg-red-500/10 border border-red-500 rounded-lg p-4">
-                  <p className="text-red-400">{error}</p>
-                </div>
-              )}
 
-              {/* Current Position */}
-              {position && position.active && (
-                <Card className="bg-gray-900/50 border-gray-800">
-                  <CardHeader>
-                    <CardTitle>Your LP Position</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Deposited:</span>
-                      <span className="font-semibold">{formatUnits(position.depositedAmount, 18)} FLR</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Available:</span>
-                      <span className="font-semibold">{formatUnits(position.availableAmount, 18)} FLR</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Total Earned:</span>
-                      <span className="font-semibold text-green-400">{formatUnits(position.totalEarned, 18)} FLR</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Min Haircut:</span>
-                      <span className="font-semibold">{(Number(position.minHaircut) / 10000).toFixed(2)}%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Max Delay:</span>
-                      <span className="font-semibold">{Number(position.maxDelay)} seconds</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Deposit Liquidity */}
-              <Card className="bg-gray-900/50 border-gray-800">
-                <CardHeader>
-                  <CardTitle>Deposit Liquidity</CardTitle>
-                  <CardDescription className="text-gray-400">
-                    Provide FLR liquidity to earn haircut fees on fast-lane redemptions.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">Amount (FLR)</Label>
-                    <Input
-                      type="number"
-                      value={depositAmount}
-                      onChange={(e) => setDepositAmount(e.target.value)}
-                      placeholder="0.0"
-                      className="bg-gray-800/50 border-gray-700 h-12 focus:ring-purple-500 focus:border-purple-500"
-                    />
-                  </div>
-
-                  <div>
-                    <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">Minimum Haircut (%)</Label>
-                    <Input
-                      type="number"
-                      value={(Number(minHaircut) / 10000).toFixed(2)}
-                      onChange={(e) => {
-                        const percent = parseFloat(e.target.value);
-                        if (!isNaN(percent)) {
-                          setMinHaircut(Math.floor(percent * 10000).toString());
-                        }
-                      }}
-                      placeholder="1.0"
-                      step="0.01"
-                      className="bg-gray-800/50 border-gray-700 h-12 focus:ring-purple-500 focus:border-purple-500"
-                    />
-                    <p className="text-xs text-gray-400 mt-1">
-                      Minimum haircut you&apos;ll accept (e.g., 1% = 1.0)
-                    </p>
-                  </div>
-
-                  <div>
-                    <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">Maximum Delay (seconds)</Label>
-                    <Input
-                      type="number"
-                      value={maxDelay}
-                      onChange={(e) => setMaxDelay(e.target.value)}
-                      placeholder="3600"
-                      className="bg-gray-800/50 border-gray-700 h-12 focus:ring-purple-500 focus:border-purple-500"
-                    />
-                    <p className="text-xs text-gray-400 mt-1">
-                      Maximum delay you&apos;ll tolerate before FDC confirmation
-                    </p>
-                  </div>
-
-                  <Button
-                    onClick={handleDeposit}
-                    disabled={!depositAmount || isPending || isWaitingTx || loading}
-                    className="w-full h-12 text-base font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 shadow-lg shadow-purple-500/20"
-                  >
-                    {isPending || isWaitingTx ? 'Processing...' : 'Deposit Liquidity'}
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Withdraw Liquidity */}
-              {position && position.active && (
-                <Card className="bg-gray-900/50 border-gray-800">
-                  <CardHeader>
-                    <CardTitle>Withdraw Liquidity</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">Amount (FLR)</Label>
-                      <Input
-                        type="number"
-                        value={withdrawAmount}
-                        onChange={(e) => setWithdrawAmount(e.target.value)}
-                        placeholder="0.0"
-                        max={position.availableAmount ? formatUnits(position.availableAmount, 18) : undefined}
-                        className="bg-gray-800/50 border-gray-700 h-12 focus:ring-purple-500 focus:border-purple-500"
-                      />
-                      <p className="text-xs text-gray-400 mt-1">
-                        Available: {position.availableAmount ? formatUnits(position.availableAmount, 18) : '0'} FLR
-                      </p>
-                    </div>
-
-                    <Button
-                      onClick={handleWithdraw}
-                      disabled={!withdrawAmount || isPending || isWaitingTx || loading}
-                      className="w-full h-12 text-base font-semibold border-purple-500/40 text-purple-300 hover:text-white hover:border-purple-400"
-                      variant="outline"
-                    >
-                      {isPending || isWaitingTx ? 'Processing...' : 'Withdraw Liquidity'}
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-
-              {txSuccess && (
-                <div className="bg-green-500/10 border border-green-500/40 rounded-lg p-4">
-                  <p className="text-green-400">Transaction successful!</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    <a
-                      href={`${CONTRACTS.networks.coston2.explorer}/tx/${txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-400 hover:underline"
-                    >
-                      View on explorer
-                    </a>
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+      {/* Hero Section */}
+      <div className="bg-white border-b border-gray-100">
+        <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
+          <div className="text-center">
+            <span className="section-label">Liquidity Provider</span>
+            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mt-4 mb-4">
+              LP <span className="text-gradient">Dashboard</span>
+            </h1>
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              Earn haircut fees by providing liquidity for instant FAsset redemptions.
+            </p>
+          </div>
         </div>
       </div>
-    </div>
+
+      <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12 space-y-8">
+        {/* Error Display */}
+        {error && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-red-700">Error</p>
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Success Message */}
+        {txSuccess && (
+          <div className="p-4 rounded-xl bg-green-50 border border-green-200 flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-green-700">Transaction Successful</p>
+              <a
+                href={`${CONTRACTS.networks.coston2.explorer}/tx/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-green-600 hover:text-green-700 inline-flex items-center gap-1"
+              >
+                View on explorer <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* Current Position */}
+        {position && position.active && (
+          <Card className="card-pink overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-flare-pink/10 to-transparent border-b border-flare-pink/10">
+              <CardTitle className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-flare-pink/10 flex items-center justify-center">
+                  <TrendingUp className="w-5 h-5 text-flare-pink" />
+                </div>
+                Your LP Position
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 bg-white rounded-xl border border-gray-100">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                    <PiggyBank className="w-4 h-4" />
+                    Deposited
+                  </div>
+                  <p className="text-2xl font-bold text-gray-900 number-display">
+                    {formatUnits(position.depositedAmount, 18)}
+                  </p>
+                  <p className="text-sm text-gray-500">FLR</p>
+                </div>
+                <div className="p-4 bg-white rounded-xl border border-gray-100">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                    <Wallet className="w-4 h-4" />
+                    Available
+                  </div>
+                  <p className="text-2xl font-bold text-gray-900 number-display">
+                    {formatUnits(position.availableAmount, 18)}
+                  </p>
+                  <p className="text-sm text-gray-500">FLR</p>
+                </div>
+                <div className="p-4 bg-white rounded-xl border border-green-100 bg-green-50/50">
+                  <div className="flex items-center gap-2 text-green-600 text-sm mb-1">
+                    <TrendingUp className="w-4 h-4" />
+                    Total Earned
+                  </div>
+                  <p className="text-2xl font-bold text-green-600 number-display">
+                    {formatUnits(position.totalEarned, 18)}
+                  </p>
+                  <p className="text-sm text-green-600">FLR</p>
+                </div>
+                <div className="p-4 bg-white rounded-xl border border-gray-100">
+                  <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                    <Percent className="w-4 h-4" />
+                    Min Haircut
+                  </div>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {(Number(position.minHaircut) / 10000).toFixed(2)}%
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 p-4 bg-gray-50 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-sm">Max Delay:</span>
+                </div>
+                <span className="font-semibold text-gray-900">{Number(position.maxDelay)} seconds</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Deposit Liquidity */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-flare-pink/10 flex items-center justify-center">
+                <PiggyBank className="w-5 h-5 text-flare-pink" />
+              </div>
+              Deposit Liquidity
+            </CardTitle>
+            <CardDescription>
+              Provide FLR liquidity to earn haircut fees on fast-lane redemptions.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Amount (FLR)
+              </label>
+              <input
+                type="number"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+                placeholder="0.0"
+                className="input-modern text-lg font-medium"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Minimum Haircut (%)
+                </label>
+                <input
+                  type="number"
+                  value={(Number(minHaircut) / 10000).toFixed(2)}
+                  onChange={(e) => {
+                    const percent = parseFloat(e.target.value);
+                    if (!isNaN(percent)) {
+                      setMinHaircut(Math.floor(percent * 10000).toString());
+                    }
+                  }}
+                  placeholder="1.0"
+                  step="0.01"
+                  className="input-modern"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Fee you earn per redemption
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Max Delay (seconds)
+                </label>
+                <input
+                  type="number"
+                  value={maxDelay}
+                  onChange={(e) => setMaxDelay(e.target.value)}
+                  placeholder="3600"
+                  className="input-modern"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Max time before FDC confirmation
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={handleDeposit}
+              disabled={!depositAmount || isPending || isWaitingTx || loading}
+              className="w-full"
+              size="lg"
+            >
+              {isPending || isWaitingTx ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                'Deposit Liquidity'
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Withdraw Liquidity */}
+        {position && position.active && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                  <ArrowDownToLine className="w-5 h-5 text-gray-600" />
+                </div>
+                Withdraw Liquidity
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Amount (FLR)
+                </label>
+                <input
+                  type="number"
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(e.target.value)}
+                  placeholder="0.0"
+                  max={position.availableAmount ? formatUnits(position.availableAmount, 18) : undefined}
+                  className="input-modern text-lg font-medium"
+                />
+                <div className="flex justify-between mt-2">
+                  <p className="text-xs text-gray-500">
+                    Available: {position.availableAmount ? formatUnits(position.availableAmount, 18) : '0'} FLR
+                  </p>
+                  <button
+                    onClick={() => setWithdrawAmount(formatUnits(position.availableAmount, 18))}
+                    className="text-xs text-flare-pink hover:text-flare-pink-dark font-semibold"
+                  >
+                    Max
+                  </button>
+                </div>
+              </div>
+
+              <Button
+                onClick={handleWithdraw}
+                disabled={!withdrawAmount || isPending || isWaitingTx || loading}
+                className="w-full"
+                size="lg"
+                variant="outline"
+              >
+                {isPending || isWaitingTx ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Withdraw Liquidity'
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* How LP Works */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">How LP Earnings Work</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-flare-pink/5 border border-flare-pink/10">
+                <p className="font-semibold text-gray-900 mb-2">Revenue Formula</p>
+                <p className="text-sm text-gray-600">
+                  <code className="bg-gray-100 px-2 py-1 rounded font-mono text-flare-pink">H ≥ r × T</code>
+                  <br />
+                  <span className="text-gray-500 mt-2 block">
+                    Where H = haircut rate, r = opportunity cost rate, T = escrow time
+                  </span>
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="font-semibold text-gray-900 mb-1">Example APY</p>
+                  <p className="text-sm text-gray-600">
+                    1% haircut at 600s escrow = ~3,650% APY
+                  </p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="font-semibold text-gray-900 mb-1">Risk</p>
+                  <p className="text-sm text-gray-600">
+                    Earn haircut only if FDC confirms XRP delivery
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
   );
 }
-
