@@ -8,6 +8,7 @@ import { ThemeProvider, useTheme } from 'next-themes';
 import '@rainbow-me/rainbowkit/styles.css';
 import { flare } from 'wagmi/chains';
 import { coston2 } from '@/lib/chains';
+import { ToastProvider } from '@/components/ui/toast';
 
 // Create query client
 const queryClient = new QueryClient({
@@ -98,7 +99,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <WagmiProvider config={wagmiConfig}>
         <QueryClientProvider client={queryClient}>
-          <RainbowKitProviderWrapper>{children}</RainbowKitProviderWrapper>
+          <RainbowKitProviderWrapper>
+            <ToastProvider>{children}</ToastProvider>
+          </RainbowKitProviderWrapper>
         </QueryClientProvider>
       </WagmiProvider>
     </ThemeProvider>

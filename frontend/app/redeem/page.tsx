@@ -8,7 +8,10 @@ import { parseUnits, formatUnits, maxUint256, decodeEventLog, encodeFunctionData
 import { CONTRACTS, FLIP_CORE_ABI } from '@/lib/contracts';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useToast } from "@/components/ui/toast";
 import { ArrowRight, Zap, Clock, AlertCircle, CheckCircle, Loader2, ExternalLink } from "lucide-react";
+
+const EXPLORER_URL = 'https://coston2-explorer.flare.network';
 
 // FXRP address on Coston2 Testnet
 const FASSET_ADDRESS = CONTRACTS.coston2.FXRP;
@@ -125,6 +128,7 @@ const REDEMPTION_REQUESTED_EVENT = {
 export default function RedeemPage() {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
+  const { addToast, updateToast } = useToast();
   const [amount, setAmount] = useState('');
   const [xrplAddress, setXrplAddress] = useState('');
   const [redemptionId, setRedemptionId] = useState<bigint | null>(null);
@@ -134,6 +138,7 @@ export default function RedeemPage() {
   const [receiptTokenIds, setReceiptTokenIds] = useState<bigint[]>([]);
   const [pendingRedemptions, setPendingRedemptions] = useState<{id: bigint, amount: bigint, xrplAddress: string}[]>([]);
   const [isOwner, setIsOwner] = useState(false);
+  const [loadingToastId, setLoadingToastId] = useState<string | null>(null);
 
   const { writeContract, data: hash, isPending, error: writeError, reset: resetWrite } = useWriteContract();
 
@@ -305,8 +310,19 @@ export default function RedeemPage() {
   useEffect(() => {
     if (isSuccess && lastAction === 'approve') {
       refetchAllowance();
+      // Update toast to success
+      if (loadingToastId) {
+        updateToast(loadingToastId, {
+          type: 'success',
+          title: 'Approval Successful',
+          description: 'You can now proceed with redemption.',
+          txHash: hash,
+          explorerUrl: EXPLORER_URL,
+        });
+        setLoadingToastId(null);
+      }
     }
-  }, [isSuccess, lastAction, refetchAllowance]);
+  }, [isSuccess, lastAction, refetchAllowance, loadingToastId, updateToast, hash]);
 
   useEffect(() => {
     if (isSuccess && lastAction === 'redeem' && redemptionId !== null) {
@@ -328,6 +344,17 @@ export default function RedeemPage() {
               });
               if (decoded.eventName === 'RedemptionRequested') {
                 setRedemptionId(decoded.args.redemptionId as bigint);
+                // Update toast to success
+                if (loadingToastId) {
+                  updateToast(loadingToastId, {
+                    type: 'success',
+                    title: 'Redemption Requested',
+                    description: `Redemption #${decoded.args.redemptionId} created successfully!`,
+                    txHash: hash,
+                    explorerUrl: EXPLORER_URL,
+                  });
+                  setLoadingToastId(null);
+                }
                 break;
               }
             } catch (e) {
@@ -340,7 +367,7 @@ export default function RedeemPage() {
       };
       parseLogs();
     }
-  }, [isSuccess, hash, lastAction, publicClient]);
+  }, [isSuccess, hash, lastAction, publicClient, loadingToastId, updateToast]);
 
   React.useEffect(() => {
     if (amount && allowance !== undefined && decimals !== undefined) {
@@ -374,6 +401,15 @@ export default function RedeemPage() {
     setError(null);
     setLastAction('approve');
 
+    // Show loading toast
+    const toastId = addToast({
+      type: 'loading',
+      title: 'Approving FXRP',
+      description: 'Please confirm the transaction in your wallet...',
+      duration: 0,
+    });
+    setLoadingToastId(toastId);
+
     try {
       writeContract({
         address: FASSET_ADDRESS,
@@ -383,6 +419,11 @@ export default function RedeemPage() {
       });
     } catch (error: any) {
       console.error('Synchronous error calling writeContract:', error);
+      updateToast(toastId, {
+        type: 'error',
+        title: 'Approval Failed',
+        description: error?.message || 'Failed to initiate approval',
+      });
       setError(error?.message || error?.shortMessage || 'Failed to initiate approval. Check console for details.');
       setLastAction(null);
     }
@@ -407,6 +448,15 @@ export default function RedeemPage() {
         setLastAction(null);
         return;
       }
+
+      // Show loading toast
+      const toastId = addToast({
+        type: 'loading',
+        title: 'Requesting Redemption',
+        description: `Redeeming ${amount} FXRP...`,
+        duration: 0,
+      });
+      setLoadingToastId(toastId);
 
       let gasLimit: bigint | undefined;
       if (publicClient && address) {
@@ -439,6 +489,13 @@ export default function RedeemPage() {
       });
     } catch (error: any) {
       console.error('Error requesting redemption:', error);
+      if (loadingToastId) {
+        updateToast(loadingToastId, {
+          type: 'error',
+          title: 'Redemption Failed',
+          description: error?.message || 'Failed to request redemption',
+        });
+      }
       setError(error?.message || 'Failed to request redemption');
       setLastAction(null);
     }

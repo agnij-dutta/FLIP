@@ -17,12 +17,13 @@ import (
 
 // Agent represents the FLIP settlement executor
 type Agent struct {
-	config           *Config
-	eventMonitor     *EventMonitor
-	paymentProc      *PaymentProcessor
-	fdcSubmitter     *FDCSubmitter
-	flareClient      *ethclient.Client
+	config               *Config
+	eventMonitor         *EventMonitor
+	paymentProc          *PaymentProcessor
+	fdcSubmitter         *FDCSubmitter
+	flareClient          *ethclient.Client
 	processedRedemptions map[uint64]bool // Track already processed redemptions
+	processedMintings    map[uint64]bool // Track already processed mintings
 }
 
 // NewAgent creates a new agent instance
@@ -58,6 +59,7 @@ func NewAgent(config *Config) (*Agent, error) {
 		fdcSubmitter:         fdcSubmitter,
 		flareClient:          flareClient,
 		processedRedemptions: make(map[uint64]bool),
+		processedMintings:    make(map[uint64]bool),
 	}, nil
 }
 
@@ -65,9 +67,19 @@ func NewAgent(config *Config) (*Agent, error) {
 func (a *Agent) Run(ctx context.Context) error {
 	log.Info().Msg("Agent service started")
 
+	// Recover any failed FDC submissions (XRP sent but not finalized)
+	if err := a.recoverFailedFDCSubmissions(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to recover FDC submissions, continuing anyway")
+	}
+
 	// Recover any pending escrows from previous runs
 	if err := a.recoverPendingEscrows(ctx); err != nil {
 		log.Warn().Err(err).Msg("Failed to recover pending escrows, continuing anyway")
+	}
+
+	// Recover any pending minting requests
+	if err := a.recoverPendingMintings(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to recover pending mintings, continuing anyway")
 	}
 
 	// Start monitoring EscrowCreated events
@@ -78,7 +90,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	redemptionChan := make(chan RedemptionRequestedEvent, 10)
 	go a.eventMonitor.MonitorRedemptionRequests(ctx, redemptionChan)
 
-	// Process events from both channels
+	// Start monitoring MintingRequested events
+	mintingChan := make(chan MintingRequestedEvent, 10)
+	go a.eventMonitor.MonitorMintingRequests(ctx, mintingChan)
+
+	// Process events from all channels
 	for {
 		select {
 		case <-ctx.Done():
@@ -90,7 +106,6 @@ func (a *Agent) Run(ctx context.Context) error {
 					Err(err).
 					Uint64("redemption_id", event.RedemptionID.Uint64()).
 					Msg("Failed to handle RedemptionRequested event")
-				// Continue processing other events
 			}
 		case event := <-escrowChan:
 			// Process escrow created - send XRP payment
@@ -99,7 +114,14 @@ func (a *Agent) Run(ctx context.Context) error {
 					Err(err).
 					Uint64("redemption_id", event.RedemptionID.Uint64()).
 					Msg("Failed to handle EscrowCreated event")
-				// Continue processing other events
+			}
+		case event := <-mintingChan:
+			// Process minting request - call finalizeMintingProvisional
+			if err := a.handleMintingRequested(ctx, event); err != nil {
+				log.Error().
+					Err(err).
+					Uint64("minting_id", event.MintingID.Uint64()).
+					Msg("Failed to handle MintingRequested event")
 			}
 		}
 	}
@@ -220,6 +242,76 @@ func (a *Agent) callOwnerProcessRedemption(ctx context.Context, redemptionID *bi
 		Str("tx_hash", tx.Hash().Hex()).
 		Uint64("gas_used", receipt.GasUsed).
 		Msg("ownerProcessRedemption transaction confirmed")
+
+	return nil
+}
+
+// recoverFailedFDCSubmissions checks for redemptions where XRP was sent but FDC finalization failed
+func (a *Agent) recoverFailedFDCSubmissions(ctx context.Context) error {
+	log.Info().Msg("Checking for failed FDC submissions to recover...")
+
+	const flipCoreABIJSON = `[
+		{"inputs":[],"name":"nextRedemptionId","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"_redemptionId","type":"uint256"}],"name":"redemptions","outputs":[{"name":"user","type":"address"},{"name":"asset","type":"address"},{"name":"amount","type":"uint256"},{"name":"requestedAt","type":"uint256"},{"name":"priceLocked","type":"uint256"},{"name":"hedgeId","type":"uint256"},{"name":"status","type":"uint8"},{"name":"fdcRequestId","type":"uint256"},{"name":"provisionalSettled","type":"bool"},{"name":"xrplAddress","type":"string"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"","type":"uint256"}],"name":"redemptionXrplTxHash","outputs":[{"name":"","type":"string"}],"stateMutability":"view","type":"function"}
+	]`
+
+	parsed, err := abi.JSON(strings.NewReader(flipCoreABIJSON))
+	if err != nil {
+		return fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	flipCoreAddr := common.HexToAddress(a.config.Flare.FLIPCoreAddress)
+	contract := bind.NewBoundContract(flipCoreAddr, parsed, a.flareClient, a.flareClient, a.flareClient)
+
+	var result []interface{}
+	err = contract.Call(&bind.CallOpts{Context: ctx}, &result, "nextRedemptionId")
+	if err != nil {
+		return fmt.Errorf("failed to get nextRedemptionId: %w", err)
+	}
+	nextID := result[0].(*big.Int).Uint64()
+
+	for i := uint64(0); i < nextID; i++ {
+		redemptionID := big.NewInt(int64(i))
+		var redemptionResult []interface{}
+		err = contract.Call(&bind.CallOpts{Context: ctx}, &redemptionResult, "redemptions", redemptionID)
+		if err != nil {
+			continue
+		}
+
+		status := redemptionResult[6].(uint8)
+		// Status 2 = EscrowCreated - check if XRP was sent but FDC not finalized
+		if status == 2 {
+			var txHashResult []interface{}
+			err = contract.Call(&bind.CallOpts{Context: ctx}, &txHashResult, "redemptionXrplTxHash", redemptionID)
+			if err != nil || len(txHashResult) == 0 {
+				continue
+			}
+
+			xrplTxHash := txHashResult[0].(string)
+			if xrplTxHash == "" {
+				continue // No XRP payment recorded yet
+			}
+
+			log.Info().
+				Uint64("redemption_id", i).
+				Str("xrpl_tx_hash", xrplTxHash).
+				Msg("Found redemption needing FDC finalization, retrying...")
+
+			// Get FDC proof and submit
+			proof, err := a.fdcSubmitter.GetFDCProof(ctx, xrplTxHash)
+			if err != nil {
+				log.Warn().Err(err).Uint64("redemption_id", i).Msg("Failed to get FDC proof for recovery")
+				continue
+			}
+
+			if err := a.fdcSubmitter.SubmitProof(ctx, redemptionID, proof); err != nil {
+				log.Warn().Err(err).Uint64("redemption_id", i).Msg("Failed to submit FDC proof in recovery")
+			} else {
+				log.Info().Uint64("redemption_id", i).Msg("Successfully recovered FDC submission")
+			}
+		}
+	}
 
 	return nil
 }
@@ -357,19 +449,37 @@ func (a *Agent) handleEscrowCreated(ctx context.Context, event EscrowCreatedEven
 		Uint64("fdc_round_id", proof.RoundID).
 		Msg("FDC proof obtained")
 
-	// Step 5: Submit FDC proof to FLIPCore
-	if err := a.fdcSubmitter.SubmitProof(ctx, event.RedemptionID, proof); err != nil {
+	// Step 5: Submit FDC proof to FLIPCore (with retry)
+	maxRetries := 3
+	var submitErr error
+	for retry := 0; retry < maxRetries; retry++ {
+		if retry > 0 {
+			log.Info().
+				Int("retry", retry).
+				Uint64("redemption_id", event.RedemptionID.Uint64()).
+				Msg("Retrying FDC proof submission")
+			time.Sleep(5 * time.Second)
+		}
+
+		submitErr = a.fdcSubmitter.SubmitProof(ctx, event.RedemptionID, proof)
+		if submitErr == nil {
+			log.Info().
+				Uint64("redemption_id", event.RedemptionID.Uint64()).
+				Msg("FDC proof submitted successfully - redemption complete")
+			return nil
+		}
+
 		log.Warn().
-			Err(err).
+			Err(submitErr).
+			Int("retry", retry).
 			Uint64("redemption_id", event.RedemptionID.Uint64()).
-			Msg("FDC proof submission failed - can retry later")
-		return nil
+			Msg("FDC proof submission failed")
 	}
 
-	log.Info().
+	log.Error().
+		Err(submitErr).
 		Uint64("redemption_id", event.RedemptionID.Uint64()).
-		Msg("FDC proof submitted successfully - redemption complete")
-
+		Msg("FDC proof submission failed after all retries")
 	return nil
 }
 
@@ -442,6 +552,172 @@ func (a *Agent) recordXrplPayment(ctx context.Context, redemptionID *big.Int, xr
 	log.Info().
 		Str("tx_hash", tx.Hash().Hex()).
 		Msg("XRPL payment recorded on-chain")
+
+	return nil
+}
+
+// handleMintingRequested processes a MintingRequested event by calling finalizeMintingProvisional
+func (a *Agent) handleMintingRequested(ctx context.Context, event MintingRequestedEvent) error {
+	mintingID := event.MintingID.Uint64()
+
+	// Skip if already processed
+	if a.processedMintings[mintingID] {
+		log.Debug().Uint64("minting_id", mintingID).Msg("Minting already processed, skipping")
+		return nil
+	}
+
+	log.Info().
+		Uint64("minting_id", mintingID).
+		Str("user", event.User.Hex()).
+		Str("xrpl_tx_hash", event.XrplTxHash).
+		Str("fxrp_amount", event.FxrpAmount.String()).
+		Msg("Processing MintingRequested event")
+
+	// Call finalizeMintingProvisional to match LP and transfer FXRP to user
+	err := a.callFinalizeMintingProvisional(ctx, event.MintingID)
+	if err != nil {
+		return fmt.Errorf("failed to call finalizeMintingProvisional: %w", err)
+	}
+
+	a.processedMintings[mintingID] = true
+	log.Info().Uint64("minting_id", mintingID).Msg("Minting provisional settlement complete")
+
+	return nil
+}
+
+// callFinalizeMintingProvisional calls FLIPCore.finalizeMintingProvisional
+func (a *Agent) callFinalizeMintingProvisional(ctx context.Context, mintingID *big.Int) error {
+	const flipCoreABIJSON = `[{
+		"inputs": [
+			{"name": "_mintingId", "type": "uint256"},
+			{"name": "_priceVolatility", "type": "uint256"}
+		],
+		"name": "finalizeMintingProvisional",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	}]`
+
+	parsed, err := abi.JSON(strings.NewReader(flipCoreABIJSON))
+	if err != nil {
+		return fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	// Default low volatility for high confidence
+	priceVolatility := big.NewInt(10000) // 1% volatility
+
+	privateKeyHex := a.config.Flare.PrivateKey
+	if privateKeyHex == "" {
+		return fmt.Errorf("no Flare private key configured")
+	}
+
+	privateKey, err := crypto.HexToECDSA(strings.TrimPrefix(privateKeyHex, "0x"))
+	if err != nil {
+		return fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	chainID := big.NewInt(int64(a.config.Flare.ChainID))
+	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
+	if err != nil {
+		return fmt.Errorf("failed to create transactor: %w", err)
+	}
+
+	nonce, err := a.flareClient.PendingNonceAt(ctx, auth.From)
+	if err != nil {
+		return fmt.Errorf("failed to get nonce: %w", err)
+	}
+	auth.Nonce = big.NewInt(int64(nonce))
+
+	gasPrice, err := a.flareClient.SuggestGasPrice(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get gas price: %w", err)
+	}
+	auth.GasPrice = gasPrice
+	auth.GasLimit = uint64(500000)
+
+	flipCoreAddr := common.HexToAddress(a.config.Flare.FLIPCoreAddress)
+
+	tx, err := bind.NewBoundContract(flipCoreAddr, parsed, a.flareClient, a.flareClient, a.flareClient).Transact(auth, "finalizeMintingProvisional", mintingID, priceVolatility)
+	if err != nil {
+		return fmt.Errorf("failed to send transaction: %w", err)
+	}
+
+	log.Info().
+		Str("tx_hash", tx.Hash().Hex()).
+		Uint64("minting_id", mintingID.Uint64()).
+		Msg("Sent finalizeMintingProvisional transaction")
+
+	receipt, err := bind.WaitMined(ctx, a.flareClient, tx)
+	if err != nil {
+		return fmt.Errorf("failed to wait for transaction: %w", err)
+	}
+
+	if receipt.Status != 1 {
+		return fmt.Errorf("transaction failed with status %d", receipt.Status)
+	}
+
+	log.Info().
+		Str("tx_hash", tx.Hash().Hex()).
+		Uint64("gas_used", receipt.GasUsed).
+		Msg("finalizeMintingProvisional transaction confirmed - FXRP transferred to user")
+
+	return nil
+}
+
+// recoverPendingMintings checks for pending minting requests that need processing
+func (a *Agent) recoverPendingMintings(ctx context.Context) error {
+	log.Info().Msg("Checking for pending minting requests to recover...")
+
+	const flipCoreABIJSON = `[
+		{"inputs":[],"name":"nextMintingId","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"_mintingId","type":"uint256"}],"name":"mintingRequests","outputs":[{"name":"user","type":"address"},{"name":"asset","type":"address"},{"name":"collateralReservationId","type":"uint256"},{"name":"xrplTxHash","type":"string"},{"name":"xrpAmount","type":"uint256"},{"name":"fxrpAmount","type":"uint256"},{"name":"requestedAt","type":"uint256"},{"name":"priceLocked","type":"uint256"},{"name":"hedgeId","type":"uint256"},{"name":"status","type":"uint8"},{"name":"fdcRequestId","type":"uint256"},{"name":"matchedLP","type":"address"},{"name":"haircutRate","type":"uint256"},{"name":"userAuthorizedFlip","type":"bool"}],"stateMutability":"view","type":"function"}
+	]`
+
+	parsed, err := abi.JSON(strings.NewReader(flipCoreABIJSON))
+	if err != nil {
+		return fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	flipCoreAddr := common.HexToAddress(a.config.Flare.FLIPCoreAddress)
+	contract := bind.NewBoundContract(flipCoreAddr, parsed, a.flareClient, a.flareClient, a.flareClient)
+
+	var result []interface{}
+	err = contract.Call(&bind.CallOpts{Context: ctx}, &result, "nextMintingId")
+	if err != nil {
+		return fmt.Errorf("failed to get nextMintingId: %w", err)
+	}
+	nextID := result[0].(*big.Int).Uint64()
+	log.Info().Uint64("next_minting_id", nextID).Msg("Found minting requests to check")
+
+	for i := uint64(0); i < nextID; i++ {
+		mintingID := big.NewInt(int64(i))
+		var mintingResult []interface{}
+		err = contract.Call(&bind.CallOpts{Context: ctx}, &mintingResult, "mintingRequests", mintingID)
+		if err != nil {
+			log.Warn().Err(err).Uint64("minting_id", i).Msg("Failed to get minting request")
+			continue
+		}
+
+		// status is at index 9
+		status := mintingResult[9].(uint8)
+		// Status 0 = Pending (needs processing)
+		if status == 0 {
+			user := mintingResult[0].(common.Address)
+			fxrpAmount := mintingResult[5].(*big.Int)
+
+			log.Info().
+				Uint64("minting_id", i).
+				Str("user", user.Hex()).
+				Str("fxrp_amount", fxrpAmount.String()).
+				Msg("Found pending minting, processing...")
+
+			if err := a.callFinalizeMintingProvisional(ctx, mintingID); err != nil {
+				log.Error().Err(err).Uint64("minting_id", i).Msg("Failed to process pending minting")
+			} else {
+				a.processedMintings[i] = true
+			}
+		}
+	}
 
 	return nil
 }

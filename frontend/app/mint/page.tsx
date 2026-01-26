@@ -10,10 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/toast";
+import { TransactionProgress, AgentStatus, LiveStatusPulse, type ProgressStep } from "@/components/ui/transaction-progress";
 import { getAvailableAgents, getCollateralReservationFee, getCollateralReservationInfo, getAssetMintingDecimals, getAssetManagerAddress, ASSET_MANAGER_ABI, type AgentInfo, type CollateralReservationInfo } from '@/lib/fassets';
 import { connectXRPLClient, getXRPBalance, sendXRPPayment, monitorPayment, getTransaction, isValidXRPLAddress, generateAndFundTestnetWallet, type XRPLBalance } from '@/lib/xrpl';
 import { Wallet } from 'xrpl';
 import { CONTRACTS, FLIP_CORE_ABI } from '@/lib/contracts';
+import { Zap, AlertCircle, Loader2, CheckCircle, ArrowRight, ExternalLink } from 'lucide-react';
+
+const EXPLORER_URL = 'https://coston2-explorer.flare.network';
 
 // FXRP address
 const FXRP_ADDRESS = '0x0b6A3645c240605887a5532109323A3E12273dc7' as Address;
@@ -51,9 +56,11 @@ export default function MintPage() {
   const { isLoading: isWaitingTx, isSuccess: txSuccess } = useWaitForTransactionReceipt({
     hash: txHash,
   });
+  const { addToast, updateToast } = useToast();
 
   // State
   const [step, setStep] = useState<MintingStep>('select-agent');
+  const [toastId, setToastId] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
   const [assetManagerAddress, setAssetManagerAddress] = useState<Address | null>(null);
@@ -341,6 +348,15 @@ export default function MintPage() {
                 console.log('Extracted payment info:', extractedPaymentInfo);
                 setPaymentInfo(extractedPaymentInfo);
 
+                // Show success toast
+                addToast({
+                  type: 'success',
+                  title: 'Collateral Reserved',
+                  description: `Reservation #${resId.toString()} created. Ready to send XRP.`,
+                  txHash: txHash,
+                  explorerUrl: EXPLORER_URL,
+                });
+
                 found = true;
                 break;
               }
@@ -520,12 +536,30 @@ export default function MintPage() {
         console.log('Payment successful:', result.txHash);
         setXrpTxHash(result.txHash);
         setWalletSecret(''); // Clear the secret for security
+
+        // Show success toast
+        addToast({
+          type: 'success',
+          title: 'XRP Sent Successfully',
+          description: 'Payment confirmed on XRPL. Ready for FLIP settlement.',
+        });
+
         setStep('flip-settlement'); // Go to FLIP instant settlement
       } else {
+        addToast({
+          type: 'error',
+          title: 'XRP Payment Failed',
+          description: result.error || 'Failed to send XRP payment',
+        });
         setError(result.error || 'Failed to send XRP payment');
       }
     } catch (err: any) {
       console.error('Failed to send payment:', err);
+      addToast({
+        type: 'error',
+        title: 'Transaction Error',
+        description: err.message,
+      });
       setError(`Failed to send XRP: ${err.message}`);
     } finally {
       setSendingPayment(false);
@@ -581,6 +615,14 @@ export default function MintPage() {
 
       if (result.success && result.txHash) {
         setXrpTxHash(result.txHash);
+
+        // Show success toast
+        addToast({
+          type: 'success',
+          title: 'XRP Sent Successfully',
+          description: 'Payment confirmed on XRPL. Ready for FLIP settlement.',
+        });
+
         setStep('flip-settlement'); // Go to FLIP instant settlement
       } else {
         setError(result.error || 'Failed to send XRP payment');
@@ -602,6 +644,15 @@ export default function MintPage() {
     try {
       setFlipSettling(true);
       setError(null);
+
+      // Show loading toast
+      const loadingToastId = addToast({
+        type: 'loading',
+        title: 'Processing FLIP Settlement',
+        description: 'LP is providing instant FXRP...',
+        duration: 0,
+      });
+      setToastId(loadingToastId);
 
       // Calculate XRP amount in drops (6 decimals)
       const xrpAmountDrops = paymentInfo
@@ -633,6 +684,11 @@ export default function MintPage() {
       // The rest is handled by useEffect watching txSuccess
     } catch (err: any) {
       console.error('FLIP settlement error:', err);
+      addToast({
+        type: 'error',
+        title: 'Settlement Failed',
+        description: err.message,
+      });
       setError(`Failed to request FLIP settlement: ${err.message}`);
       setFlipSettling(false);
     }
@@ -644,6 +700,18 @@ export default function MintPage() {
       console.log('FLIP settlement transaction confirmed:', txHash);
       setFlipSettled(true);
       setFlipSettling(false);
+
+      // Update loading toast to success
+      if (toastId) {
+        updateToast(toastId, {
+          type: 'success',
+          title: 'FXRP Received!',
+          description: 'Instant settlement complete. FXRP is in your wallet.',
+          txHash: txHash,
+          explorerUrl: EXPLORER_URL,
+        });
+        setToastId(null);
+      }
 
       // Parse the MintingRequested event to get the minting ID
       if (publicClient) {
@@ -673,462 +741,607 @@ export default function MintPage() {
         }, 1500);
       }
     }
-  }, [txHash, txSuccess, step, flipSettling, publicClient, refetchFxrp]);
+  }, [txHash, txSuccess, step, flipSettling, publicClient, refetchFxrp, toastId, updateToast]);
 
   // Note: FLIP settlement monitor is handled in the useEffect above
 
   if (!isConnected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black dark">
+      <main className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <Header />
-        <div className="container mx-auto px-4 py-16">
-          <Card className="bg-gray-900/60 border-gray-800 text-white">
-            <CardContent className="pt-6">
-              <p className="text-center text-gray-400">Please connect your wallet to mint FXRP</p>
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
+          <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
+            <div className="text-center">
+              <span className="section-label">FAsset Minting</span>
+              <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white mt-4 mb-4">
+                Mint <span className="text-gradient">FXRP</span>
+              </h1>
+              <p className="text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+                Convert your native XRP to FAssets on Flare Network.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="max-w-4xl mx-auto px-4 py-12">
+          <Card>
+            <CardContent className="pt-12 pb-12">
+              <div className="text-center">
+                <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-4">
+                  <Zap className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Connect Your Wallet</h3>
+                <p className="text-gray-500 dark:text-gray-400">Please connect your wallet to mint FXRP tokens.</p>
+              </div>
             </CardContent>
           </Card>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0b0f1f] via-black to-black text-white selection:bg-purple-500/30 dark">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Header />
-      
-      <main className="container mx-auto px-4 py-12">
-        <div className="max-w-3xl mx-auto space-y-8">
-          {/* Progress Bar */}
-          <div className="space-y-4">
-            <div className="flex justify-between text-sm font-medium">
-              <span className="text-purple-400">Step {getStepNumber(step)} of 6</span>
-              <span className="text-gray-400">{getStepName(step)}</span>
-            </div>
-            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-purple-600 to-blue-500 transition-all duration-500 ease-out"
-                style={{ width: `${(getStepNumber(step) / 6) * 100}%` }}
-              />
-            </div>
+
+      {/* Hero Section */}
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
+        <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
+          <div className="text-center">
+            <span className="section-label">FAsset Minting</span>
+            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white mt-4 mb-4">
+              Mint <span className="text-gradient">FXRP</span>
+            </h1>
+            <p className="text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+              Convert your native XRP to FAssets on Flare Network with FLIP instant settlement.
+            </p>
           </div>
+        </div>
+      </div>
 
-          <Card className="bg-gray-900/60 border-gray-800 backdrop-blur-xl shadow-2xl shadow-purple-500/10">
-            <CardHeader className="border-b border-gray-800/50 pb-8">
-              <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-                Mint FXRP
-              </CardTitle>
-              <CardDescription className="text-gray-400 text-lg">
-                Convert your native XRP to FAssets on Flare Network with ease.
-              </CardDescription>
-            </CardHeader>
-            
-            <CardContent className="pt-8 space-y-8">
-              {error && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
-                  <div className="h-5 w-5 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-white text-xs font-bold">!</span>
-                  </div>
-                  <p className="text-red-400 text-sm">{error}</p>
+      <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
+        {/* Progress Indicator */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-semibold text-flare-pink">Step {getStepNumber(step)} of 6</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">{getStepName(step)}</span>
+          </div>
+          <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-flare-pink to-purple-500 transition-all duration-500 ease-out"
+              style={{ width: `${(getStepNumber(step) / 6) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Main Minting Card */}
+        <Card className="mb-8 overflow-hidden">
+          <CardHeader className="bg-gradient-to-r from-flare-pink/5 to-transparent border-b border-gray-100 dark:border-gray-800">
+            <CardTitle className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-flare-pink/10 flex items-center justify-center">
+                <Zap className="w-5 h-5 text-flare-pink" />
+              </div>
+              {getStepName(step)}
+            </CardTitle>
+            <CardDescription>
+              {step === 'select-agent' && 'Select an agent and specify how many lots you want to mint.'}
+              {step === 'reserve-collateral' && 'Review and confirm your collateral reservation.'}
+              {step === 'connect-xrpl' && 'Connect your XRPL wallet to send the XRP payment.'}
+              {step === 'send-xrp' && 'Send XRP to the agent to complete minting.'}
+              {step === 'flip-settlement' && 'Get your FXRP instantly via FLIP protocol.'}
+              {step === 'success' && 'Congratulations! Your FXRP has been minted.'}
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="pt-6">
+            {/* Error Display */}
+            {error && (
+              <div className="mb-6 p-4 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-red-700 dark:text-red-400">Error</p>
+                  <p className="text-sm text-red-600 dark:text-red-300">{error}</p>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Step 1: Select Agent */}
-              {step === 'select-agent' && (
-                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <div className="space-y-4">
-                    <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">Minting Amount</Label>
-                    <div className="relative group">
-                      <Input
-                        type="number"
-                        value={lots}
-                        onChange={(e) => setLots(e.target.value)}
-                        min="1"
-                        className="bg-gray-800/50 border-gray-700 h-14 text-xl font-mono focus:ring-purple-500 focus:border-purple-500 transition-all pl-4 pr-16"
-                        placeholder="1"
-                      />
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-medium">
-                        LOTS
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-500 italic">1 lot = 10 XRP value in FXRP</p>
-                  </div>
-
-                  <div className="space-y-4">
-                    <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">Available Agents</Label>
-                    {loading ? (
-                      <div className="py-12 flex flex-col items-center justify-center space-y-4">
-                        <div className="h-8 w-8 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
-                        <p className="text-gray-400 animate-pulse">Scanning network for agents...</p>
-                      </div>
-                    ) : agents.length === 0 ? (
-                      <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-2xl p-8 text-center space-y-4">
-                        <div className="mx-auto h-12 w-12 rounded-full bg-yellow-500/20 flex items-center justify-center">
-                          <span className="text-yellow-500 text-2xl font-bold">!</span>
-                        </div>
-                        <div className="space-y-2">
-                          <h3 className="text-yellow-400 font-semibold text-lg">No Agents Available</h3>
-                          <p className="text-gray-400 text-sm max-w-sm mx-auto">
-                            We couldn&apos;t find any active agents on Coston2 testnet right now.
-                          </p>
-                        </div>
-                        {parseFloat(fxrpBalance) > 0 && (
-                          <div className="pt-4 border-t border-gray-800 mt-4">
-                            <p className="text-emerald-400 text-sm font-medium mb-4 italic">
-                              You already have {fxrpBalance} FXRP tokens!
-                            </p>
-                            <Button 
-                              variant="outline" 
-                              className="border-purple-500/30 hover:bg-purple-500/10 text-purple-400"
-                              asChild
-                            >
-                              <a href="/redeem">Try Redemption Flow instead</a>
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="grid gap-3">
-                        {agents.map((agent) => (
-                          <div
-                            key={agent.agentVault}
-                            className={`group relative overflow-hidden rounded-2xl border transition-all duration-300 ${
-                              selectedAgent?.agentVault === agent.agentVault 
-                                ? 'bg-purple-500/10 border-purple-500 ring-1 ring-purple-500' 
-                                : 'bg-gray-800/30 border-gray-800 hover:border-gray-700 hover:bg-gray-800/50'
-                            }`}
-                            onClick={() => handleSelectAgent(agent)}
-                          >
-                            <div className="p-5 flex justify-between items-center relative z-10">
-                              <div className="space-y-1.5">
-                                <div className="flex items-center gap-2">
-                                  <div className={`h-2 w-2 rounded-full ${agent.status === 0 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
-                                  <span className="font-mono text-xs text-gray-400">{agent.agentVault.slice(0, 10)}...{agent.agentVault.slice(-8)}</span>
-                                </div>
-                                <div className="flex items-baseline gap-2">
-                                  <span className="text-lg font-bold text-white">{Number(agent.feeBIPS) / 10000}%</span>
-                                  <span className="text-xs text-gray-500 uppercase font-semibold">Fee</span>
-                                  <span className="mx-2 text-gray-700">|</span>
-                                  <span className="text-lg font-bold text-white">{Number(agent.freeCollateralLots)}</span>
-                                  <span className="text-xs text-gray-500 uppercase font-semibold">Lots Available</span>
-                                </div>
-                              </div>
-                              <Button
-                                size="sm"
-                                variant={selectedAgent?.agentVault === agent.agentVault ? "default" : "outline"}
-                                className={`${selectedAgent?.agentVault === agent.agentVault ? 'bg-purple-600 hover:bg-purple-700' : 'border-gray-700 text-gray-400 group-hover:text-white group-hover:border-gray-500'}`}
-                              >
-                                {selectedAgent?.agentVault === agent.agentVault ? 'Selected' : 'Select'}
-                              </Button>
-                            </div>
-                            {/* Decorative background gradient */}
-                            {selectedAgent?.agentVault === agent.agentVault && (
-                              <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 to-blue-500/5 opacity-50" />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Step 2: Reserve Collateral */}
-              {step === 'reserve-collateral' && selectedAgent && (
-                <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
-                  <div className="bg-gray-800/40 rounded-3xl p-8 border border-gray-800 space-y-6">
-                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-8">
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Selected Agent</p>
-                        <p className="font-mono text-sm text-purple-300 truncate">{selectedAgent.agentVault}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Minting Amount</p>
-                        <p className="text-xl font-bold">{lots} Lots <span className="text-sm text-gray-400 font-normal">({parseInt(lots) * 10} XRP)</span></p>
-                      </div>
-                    </div>
-                    
-                    <div className="pt-6 border-t border-gray-700/50">
-                      <div className="flex justify-between items-baseline">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Estimated Fee</p>
-                        <div className="text-right">
-                          <p className="text-3xl font-black text-white">{formatUnits(crfAmount, 18)} <span className="text-sm font-medium text-purple-400">FLR</span></p>
-                          <p className="text-xs text-gray-500 mt-1">Collateral Reservation Fee</p>
-                        </div>
-                      </div>
+            {/* Step 1: Select Agent */}
+            {step === 'select-agent' && (
+              <div className="space-y-6">
+                {/* Minting Amount Input */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Minting Amount (Lots)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={lots}
+                      onChange={(e) => setLots(e.target.value)}
+                      min="1"
+                      placeholder="1"
+                      className="input-modern pr-20 text-lg font-medium"
+                    />
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 font-semibold">
+                      LOTS
                     </div>
                   </div>
-
-                  <Button
-                    onClick={handleReserveCollateral}
-                    disabled={!assetManagerAddress || isPending || isWaitingTx || loading}
-                    className="w-full h-16 text-lg font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 shadow-xl shadow-purple-500/20 rounded-2xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {isPending || isWaitingTx ? (
-                      <div className="flex items-center gap-3">
-                        <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        <span>Confirming Transaction...</span>
-                      </div>
-                    ) : (
-                      'Lock Collateral & Proceed'
-                    )}
-                  </Button>
-                  
-                  <button 
-                    onClick={() => setStep('select-agent')}
-                    className="w-full text-center text-gray-500 hover:text-gray-300 text-sm font-medium transition-colors"
-                  >
-                    ← Back to Agent Selection
-                  </button>
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                    <span className="text-flare-pink font-medium">1 lot</span> = 10 XRP value in FXRP
+                  </p>
                 </div>
-              )}
 
-              {/* Step 3: Connect XRPL */}
-              {step === 'connect-xrpl' && (paymentInfo || reservationInfo) && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
-                  {/* Payment Details Card */}
-                  <div className="bg-gray-800/40 rounded-3xl p-6 border border-gray-800 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Reservation ID</p>
-                        <p className="font-mono text-sm text-white">{reservationId?.toString()}</p>
+                {/* Available Agents */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                    Available Agents
+                  </label>
+
+                  {loading ? (
+                    <div className="py-12 flex flex-col items-center justify-center space-y-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700">
+                      <Loader2 className="w-8 h-8 text-flare-pink animate-spin" />
+                      <p className="text-gray-500 dark:text-gray-400 text-sm">Scanning network for agents...</p>
+                    </div>
+                  ) : agents.length === 0 ? (
+                    <div className="p-8 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-center space-y-4">
+                      <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center mx-auto">
+                        <AlertCircle className="w-7 h-7 text-amber-600 dark:text-amber-400" />
                       </div>
-                      <div className="space-y-1 text-right">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Amount to Pay</p>
-                        <p className="text-xl font-black text-white">
-                          {(() => {
-                            const totalDrops = paymentInfo
-                              ? paymentInfo.valueUBA + paymentInfo.feeUBA
-                              : (reservationInfo ? reservationInfo.valueUBA + reservationInfo.feeUBA : BigInt(0));
-                            const xrpAmount = Number(totalDrops) / 1_000_000;
-                            return xrpAmount.toFixed(2);
-                          })()}
-                          <span className="text-sm font-medium text-blue-400 ml-1">XRP</span>
+                      <div>
+                        <h3 className="text-lg font-semibold text-amber-800 dark:text-amber-300">No Agents Available</h3>
+                        <p className="text-sm text-amber-700 dark:text-amber-400 mt-1 max-w-sm mx-auto">
+                          We couldn&apos;t find any active agents on Coston2 testnet right now.
                         </p>
                       </div>
+                      {parseFloat(fxrpBalance) > 0 && (
+                        <div className="pt-4 border-t border-amber-200 dark:border-amber-500/20 mt-4">
+                          <p className="text-emerald-600 dark:text-emerald-400 text-sm font-medium mb-3">
+                            You already have {fxrpBalance} FXRP tokens!
+                          </p>
+                          <Button variant="outline" asChild>
+                            <a href="/redeem">Try Redemption Flow instead</a>
+                          </Button>
+                        </div>
+                      )}
                     </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {agents.map((agent) => (
+                        <div
+                          key={agent.agentVault}
+                          onClick={() => handleSelectAgent(agent)}
+                          className={`relative p-5 rounded-2xl border-2 cursor-pointer transition-all duration-200 ${
+                            selectedAgent?.agentVault === agent.agentVault
+                              ? 'border-flare-pink bg-flare-pink/5 dark:bg-flare-pink/10 shadow-lg shadow-flare-pink/10'
+                              : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <div className="space-y-2">
+                              {/* Agent Address */}
+                              <div className="flex items-center gap-2">
+                                <div className="relative">
+                                  <div className={`w-2.5 h-2.5 rounded-full ${agent.status === 0 ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                                  {agent.status === 0 && (
+                                    <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping opacity-50" />
+                                  )}
+                                </div>
+                                <span className="font-mono text-sm text-gray-500 dark:text-gray-400">
+                                  {agent.agentVault.slice(0, 10)}...{agent.agentVault.slice(-8)}
+                                </span>
+                              </div>
+                              {/* Agent Stats */}
+                              <div className="flex items-baseline gap-4">
+                                <div>
+                                  <span className="text-2xl font-bold text-gray-900 dark:text-white">{Number(agent.feeBIPS) / 10000}%</span>
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1 uppercase">Fee</span>
+                                </div>
+                                <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
+                                <div>
+                                  <span className="text-2xl font-bold text-gray-900 dark:text-white">{Number(agent.freeCollateralLots)}</span>
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1 uppercase">Lots Available</span>
+                                </div>
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={selectedAgent?.agentVault === agent.agentVault ? "default" : "outline"}
+                            >
+                              {selectedAgent?.agentVault === agent.agentVault ? 'Selected' : 'Select'}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
-                    {/* Agent's XRPL Address - where to send the XRP */}
-                    {paymentInfo?.agentXrplAddress && (
-                      <div className="pt-4 border-t border-gray-700/50 space-y-1">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Send XRP To (Agent Address)</p>
-                        <p className="font-mono text-sm text-blue-300 break-all">{paymentInfo.agentXrplAddress}</p>
-                      </div>
-                    )}
-
-                    <div className="pt-4 border-t border-gray-700/50 space-y-1">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Payment Reference (Memo)</p>
-                      <p className="font-mono text-[10px] text-gray-400 break-all leading-relaxed">
-                        {paymentInfo?.paymentReference || reservationInfo?.paymentReference}
+            {/* Step 2: Reserve Collateral */}
+            {step === 'reserve-collateral' && selectedAgent && (
+              <div className="space-y-6">
+                {/* Reservation Summary */}
+                <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-6 space-y-5">
+                  <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-flare-pink" />
+                        Selected Agent
+                      </p>
+                      <p className="font-mono text-sm text-flare-pink truncate">{selectedAgent.agentVault}</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                        Minting Amount
+                      </p>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">
+                        {lots} Lots
+                        <span className="text-sm text-gray-500 dark:text-gray-400 font-normal ml-2">({parseInt(lots) * 10} XRP)</span>
                       </p>
                     </div>
                   </div>
 
-                  {/* Wallet Section */}
-                  <div className="bg-gray-800/40 rounded-3xl p-6 border border-gray-800 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">Your XRPL Wallet</Label>
-                      {!xrplWallet && (
-                        <Button
-                          onClick={handleGenerateTestWallet}
-                          disabled={generatingWallet}
-                          variant="outline"
-                          size="sm"
-                          className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10"
-                        >
-                          {generatingWallet ? (
-                            <span className="flex items-center gap-2">
-                              <span className="h-3 w-3 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
-                              Generating...
-                            </span>
-                          ) : (
-                            'Generate Test Wallet'
-                          )}
-                        </Button>
-                      )}
-                    </div>
-
-                    {xrplWallet ? (
-                      <div className="space-y-3">
-                        <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4">
-                          <p className="text-xs text-green-400 font-semibold mb-1">Wallet Ready</p>
-                          <p className="font-mono text-sm text-white break-all">{xrplAddress}</p>
-                          {xrpBalance && (
-                            <p className="text-sm text-green-400 mt-2">Balance: {xrpBalance.balance} XRP</p>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <p className="text-sm text-gray-400">
-                          Generate a testnet wallet above, or enter your own XRPL address:
+                  <div className="pt-5 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex justify-between items-baseline">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Estimated Fee</p>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {formatUnits(crfAmount, 18)}
+                          <span className="text-sm font-medium text-flare-pink ml-1">FLR</span>
                         </p>
-                        <Input
-                          value={xrplAddress}
-                          onChange={(e) => setXrplAddress(e.target.value)}
-                          placeholder="r..."
-                          className="bg-gray-800/50 border-gray-700 h-12 pl-4 focus:ring-blue-500 transition-all"
-                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Collateral Reservation Fee</p>
                       </div>
-                    )}
-                  </div>
-
-                  <Button
-                    onClick={() => setStep('send-xrp')}
-                    disabled={!xrplWallet && (!xrplAddress || !isValidXRPLAddress(xrplAddress))}
-                    className="w-full h-14 text-lg font-bold bg-blue-600 hover:bg-blue-500 shadow-xl shadow-blue-500/20 rounded-2xl transition-all"
-                  >
-                    Continue to Payment
-                  </Button>
-                </div>
-              )}
-
-              {/* Step 4: Send XRP */}
-              {step === 'send-xrp' && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <div className="text-center space-y-3">
-                    <div className="h-16 w-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto ring-4 ring-blue-500/5">
-                      <span className="text-blue-500 text-2xl font-bold">XRP</span>
                     </div>
-                    <h3 className="text-2xl font-bold text-white">Send XRP Payment</h3>
-                    <p className="text-gray-400 max-w-sm mx-auto text-sm">
-                      {xrplWallet
-                        ? 'Click the button below to send XRP from your generated wallet to the agent.'
-                        : 'Enter your XRPL wallet secret to authorize the payment. The XRP will be sent directly to the agent.'}
+                  </div>
+                </div>
+
+                {/* Info Box */}
+                <div className="rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 p-4 flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                    <Zap className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-blue-700 dark:text-blue-300 text-sm">What happens next?</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                      After reserving collateral, you&apos;ll send XRP to the agent and receive FXRP instantly via FLIP protocol.
                     </p>
                   </div>
+                </div>
 
-                  <div className="p-5 bg-gray-800/30 rounded-2xl border border-gray-800 space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-500 text-sm">From</span>
-                      <span className="text-white font-mono text-sm truncate max-w-[200px]">{xrplAddress}</span>
+                <Button
+                  onClick={handleReserveCollateral}
+                  disabled={!assetManagerAddress || isPending || isWaitingTx || loading}
+                  className="w-full h-14 text-lg font-semibold"
+                >
+                  {isPending || isWaitingTx ? (
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Confirming Transaction...</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-500 text-sm">To (Agent)</span>
-                      <span className="text-blue-300 font-mono text-sm truncate max-w-[200px]">
-                        {paymentInfo?.agentXrplAddress || 'Loading...'}
-                      </span>
+                  ) : (
+                    <>
+                      Lock Collateral & Proceed
+                      <ArrowRight className="w-5 h-5 ml-2" />
+                    </>
+                  )}
+                </Button>
+
+                <button
+                  onClick={() => setStep('select-agent')}
+                  className="w-full text-center text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 text-sm font-medium transition-colors"
+                >
+                  ← Back to Agent Selection
+                </button>
+              </div>
+            )}
+
+            {/* Step 3: Connect XRPL */}
+            {step === 'connect-xrpl' && (paymentInfo || reservationInfo) && (
+              <div className="space-y-6">
+                {/* Payment Details Card */}
+                <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-5 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Reservation ID</p>
+                      <p className="font-mono text-sm text-gray-900 dark:text-white">{reservationId?.toString()}</p>
                     </div>
-                    <div className="flex justify-between items-center pt-3 border-t border-gray-700/50">
-                      <span className="text-gray-500 text-sm font-semibold">Amount</span>
-                      <span className="text-white text-xl font-bold">
+                    <div className="space-y-1 text-right">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Amount to Pay</p>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">
                         {(() => {
                           const totalDrops = paymentInfo
                             ? paymentInfo.valueUBA + paymentInfo.feeUBA
                             : (reservationInfo ? reservationInfo.valueUBA + reservationInfo.feeUBA : BigInt(0));
                           const xrpAmount = Number(totalDrops) / 1_000_000;
-                          return xrpAmount.toFixed(6);
+                          return xrpAmount.toFixed(2);
                         })()}
-                        <span className="text-blue-400 text-sm ml-1">XRP</span>
-                      </span>
+                        <span className="text-sm font-medium text-blue-600 dark:text-blue-400 ml-1">XRP</span>
+                      </p>
                     </div>
                   </div>
 
-                  {xrpBalance && (
-                    <div className="text-center text-sm text-gray-400">
-                      Your wallet balance: <span className="text-white font-semibold">{xrpBalance.balance} XRP</span>
+                  {/* Agent's XRPL Address */}
+                  {paymentInfo?.agentXrplAddress && (
+                    <div className="pt-4 border-t border-gray-200 dark:border-gray-700 space-y-1">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Send XRP To (Agent Address)</p>
+                      <p className="font-mono text-sm text-blue-600 dark:text-blue-400 break-all">{paymentInfo.agentXrplAddress}</p>
                     </div>
                   )}
 
-                  {xrplWallet ? (
-                    <Button
-                      onClick={handleSendXRP}
-                      disabled={loading || !paymentInfo?.agentXrplAddress || !xrplAddress}
-                      className="w-full h-16 text-lg font-bold bg-blue-600 hover:bg-blue-500 shadow-xl shadow-blue-500/20 rounded-2xl"
-                    >
-                      {loading ? 'Sending...' : 'Send XRP Now'}
-                    </Button>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 text-sm text-blue-300">
-                        <p className="font-semibold mb-2">Enter Your Wallet Secret</p>
-                        <p>
-                          Enter your XRPL wallet secret (seed) to authorize the payment. The payment will be sent directly from your wallet.
-                        </p>
-                      </div>
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700 space-y-1">
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Payment Reference (Memo)</p>
+                    <p className="font-mono text-[10px] text-gray-500 dark:text-gray-400 break-all leading-relaxed bg-gray-100 dark:bg-gray-800 rounded-lg p-2">
+                      {paymentInfo?.paymentReference || reservationInfo?.paymentReference}
+                    </p>
+                  </div>
+                </div>
 
-                      <div className="space-y-2">
-                        <Label className="text-gray-300 text-sm uppercase tracking-wider font-semibold">XRPL Wallet Secret</Label>
-                        <Input
-                          type="password"
-                          value={walletSecret}
-                          onChange={(e) => {
-                            setWalletSecret(e.target.value);
-                            setSecretError(null);
-                          }}
-                          placeholder="sXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-                          className={`bg-gray-800/50 border-gray-700 h-12 pl-4 focus:ring-blue-500 transition-all font-mono ${
-                            secretError ? 'border-red-500' : ''
-                          }`}
-                        />
-                        {secretError && (
-                          <p className="text-red-400 text-xs">{secretError}</p>
-                        )}
-                        <p className="text-xs text-gray-500">
-                          Your secret is used only to sign the transaction and is never stored.
-                        </p>
-                      </div>
-
+                {/* Wallet Section */}
+                <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide font-semibold">Your XRPL Wallet</Label>
+                    {!xrplWallet && (
                       <Button
-                        onClick={handleSendWithSecret}
-                        disabled={sendingPayment || !walletSecret.trim() || !paymentInfo?.agentXrplAddress}
-                        className="w-full h-14 text-lg font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 shadow-lg shadow-purple-500/20 rounded-2xl"
+                        onClick={handleGenerateTestWallet}
+                        disabled={generatingWallet}
+                        variant="outline"
+                        size="sm"
                       >
-                        {sendingPayment ? (
+                        {generatingWallet ? (
                           <span className="flex items-center gap-2">
-                            <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            Sending Payment...
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Generating...
                           </span>
                         ) : (
-                          'Send XRP Payment'
+                          'Generate Test Wallet'
                         )}
                       </Button>
+                    )}
+                  </div>
+
+                  {xrplWallet ? (
+                    <div className="rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                        <p className="text-sm text-emerald-700 dark:text-emerald-400 font-semibold">Wallet Ready</p>
+                      </div>
+                      <p className="font-mono text-sm text-gray-900 dark:text-white break-all">{xrplAddress}</p>
+                      {xrpBalance && (
+                        <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-2 font-medium">Balance: {xrpBalance.balance} XRP</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Generate a testnet wallet above, or enter your own XRPL address:
+                      </p>
+                      <Input
+                        value={xrplAddress}
+                        onChange={(e) => setXrplAddress(e.target.value)}
+                        placeholder="r..."
+                        className="input-modern"
+                      />
                     </div>
                   )}
                 </div>
-              )}
+
+                <Button
+                  onClick={() => setStep('send-xrp')}
+                  disabled={!xrplWallet && (!xrplAddress || !isValidXRPLAddress(xrplAddress))}
+                  className="w-full h-14 text-lg font-semibold"
+                >
+                  Continue to Payment
+                  <ArrowRight className="w-5 h-5 ml-2" />
+                </Button>
+              </div>
+            )}
+
+            {/* Step 4: Send XRP */}
+            {step === 'send-xrp' && (
+              <div className="space-y-6">
+                <div className="text-center space-y-3">
+                  <div className="h-16 w-16 bg-blue-100 dark:bg-blue-500/10 rounded-full flex items-center justify-center mx-auto ring-4 ring-blue-100 dark:ring-blue-500/5">
+                    <span className="text-blue-600 dark:text-blue-500 text-2xl font-bold">XRP</span>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Send XRP Payment</h3>
+                  <p className="text-gray-600 dark:text-gray-400 max-w-sm mx-auto text-sm">
+                    {xrplWallet
+                      ? 'Click the button below to send XRP from your generated wallet to the agent.'
+                      : 'Enter your XRPL wallet secret to authorize the payment. The XRP will be sent directly to the agent.'}
+                  </p>
+                </div>
+
+                <div className="p-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 dark:text-gray-400 text-sm">From</span>
+                    <span className="text-gray-900 dark:text-white font-mono text-sm truncate max-w-[200px]">{xrplAddress}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 dark:text-gray-400 text-sm">To (Agent)</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-mono text-sm truncate max-w-[200px]">
+                      {paymentInfo?.agentXrplAddress || 'Loading...'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <span className="text-gray-600 dark:text-gray-400 text-sm font-semibold">Amount</span>
+                    <span className="text-gray-900 dark:text-white text-xl font-bold">
+                      {(() => {
+                        const totalDrops = paymentInfo
+                          ? paymentInfo.valueUBA + paymentInfo.feeUBA
+                          : (reservationInfo ? reservationInfo.valueUBA + reservationInfo.feeUBA : BigInt(0));
+                        const xrpAmount = Number(totalDrops) / 1_000_000;
+                        return xrpAmount.toFixed(6);
+                      })()}
+                      <span className="text-blue-600 dark:text-blue-400 text-sm ml-1">XRP</span>
+                    </span>
+                  </div>
+                </div>
+
+                {xrpBalance && (
+                  <div className="text-center text-sm text-gray-600 dark:text-gray-400">
+                    Your wallet balance: <span className="text-gray-900 dark:text-white font-semibold">{xrpBalance.balance} XRP</span>
+                  </div>
+                )}
+
+                {xrplWallet ? (
+                  <Button
+                    onClick={handleSendXRP}
+                    disabled={loading || !paymentInfo?.agentXrplAddress || !xrplAddress}
+                    className="w-full h-14 text-lg font-semibold"
+                  >
+                    {loading ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Sending...
+                      </span>
+                    ) : (
+                      'Send XRP Now'
+                    )}
+                  </Button>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 p-4 text-sm">
+                      <p className="font-semibold text-blue-700 dark:text-blue-300 mb-1">Enter Your Wallet Secret</p>
+                      <p className="text-blue-600 dark:text-blue-400">
+                        Enter your XRPL wallet secret (seed) to authorize the payment. The payment will be sent directly from your wallet.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-gray-700 dark:text-gray-300 text-sm uppercase tracking-wide font-semibold">XRPL Wallet Secret</Label>
+                      <Input
+                        type="password"
+                        value={walletSecret}
+                        onChange={(e) => {
+                          setWalletSecret(e.target.value);
+                          setSecretError(null);
+                        }}
+                        placeholder="sXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                        className={`input-modern font-mono ${secretError ? 'border-red-500 dark:border-red-500' : ''}`}
+                      />
+                      {secretError && (
+                        <p className="text-red-500 dark:text-red-400 text-xs">{secretError}</p>
+                      )}
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Your secret is used only to sign the transaction and is never stored.
+                      </p>
+                    </div>
+
+                    <Button
+                      onClick={handleSendWithSecret}
+                      disabled={sendingPayment || !walletSecret.trim() || !paymentInfo?.agentXrplAddress}
+                      className="w-full h-14 text-lg font-semibold"
+                    >
+                      {sendingPayment ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Sending Payment...
+                        </span>
+                      ) : (
+                        'Send XRP Payment'
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
 
               {/* Step 5: FLIP Instant Settlement */}
               {step === 'flip-settlement' && xrpTxHash && (
-                <div className="space-y-8 animate-in fade-in duration-500 text-center py-8">
+                <div className="space-y-8 animate-in fade-in duration-500 py-8">
                   {!flipSettled ? (
                     <>
-                      <div className="relative mx-auto h-24 w-24">
-                        <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 blur-2xl opacity-30 animate-pulse" />
-                        <div className="relative h-full w-full bg-gradient-to-r from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-xl">
-                          <span className="text-white text-3xl font-black">⚡</span>
+                      <div className="text-center">
+                        <div className="relative mx-auto h-24 w-24 mb-6">
+                          <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 blur-2xl opacity-30 animate-pulse" />
+                          <div className="relative h-full w-full bg-gradient-to-r from-purple-600 to-blue-600 rounded-full flex items-center justify-center shadow-xl">
+                            <span className="text-white text-3xl font-black">⚡</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-center gap-2 flex-wrap">
+                            <h3 className="text-2xl font-bold text-gray-900 dark:text-white">FLIP Instant Settlement</h3>
+                            <LiveStatusPulse label={flipSettling ? "Processing" : "Ready"} isActive={true} />
+                          </div>
+                          <p className="text-gray-600 dark:text-gray-400 max-w-sm mx-auto">
+                            {flipSettling
+                              ? 'Connecting you with a liquidity provider for instant FXRP...'
+                              : 'Get your FXRP instantly! A liquidity provider will send you FXRP now, taking the FDC verification wait for you.'}
+                          </p>
                         </div>
                       </div>
 
-                      <div className="space-y-3">
-                        <h3 className="text-2xl font-bold text-white">FLIP Instant Settlement</h3>
-                        <p className="text-gray-400 max-w-sm mx-auto">
-                          {flipSettling
-                            ? 'Connecting you with a liquidity provider for instant FXRP...'
-                            : 'Get your FXRP instantly! A liquidity provider will send you FXRP now, taking the FDC verification wait for you.'}
-                        </p>
+                      {/* Agent Status Card */}
+                      {selectedAgent && (
+                        <AgentStatus
+                          agentAddress={selectedAgent.agentVault}
+                          agentXrplAddress={paymentInfo?.agentXrplAddress}
+                          status={flipSettling ? 'processing' : xrpTxHash ? 'sent' : 'pending'}
+                          xrplTxHash={xrpTxHash || undefined}
+                        />
+                      )}
+
+                      {/* Transaction Progress */}
+                      <div className="bg-white dark:bg-gray-800/50 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 shadow-sm">
+                        <TransactionProgress
+                          title="Settlement Progress"
+                          currentStep={flipSettling ? 2 : 1}
+                          steps={[
+                            {
+                              id: 'xrp-sent',
+                              label: 'XRP Payment Sent',
+                              description: 'Payment confirmed on XRPL',
+                              status: 'completed',
+                              txHash: xrpTxHash || undefined,
+                            },
+                            {
+                              id: 'flip-request',
+                              label: 'FLIP Settlement Request',
+                              description: flipSettling ? 'Matching with liquidity provider...' : 'Click below to get instant FXRP',
+                              status: flipSettling ? 'active' : 'pending',
+                              txHash: flipSettling && txHash ? txHash : undefined,
+                              explorerUrl: EXPLORER_URL,
+                            },
+                            {
+                              id: 'fxrp-received',
+                              label: 'FXRP Received',
+                              description: 'Tokens in your wallet',
+                              status: 'pending',
+                            },
+                          ]}
+                        />
                       </div>
 
-                      <div className="bg-gray-800/20 rounded-xl p-4 inline-block border border-gray-800">
-                        <p className="text-xs text-gray-500 mb-1 font-semibold uppercase tracking-widest">XRPL Payment Hash</p>
-                        <p className="font-mono text-xs text-purple-300">{xrpTxHash}</p>
-                      </div>
-
-                      <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 rounded-2xl p-5 text-left max-w-md mx-auto">
-                        <h4 className="text-purple-400 font-semibold mb-2 flex items-center gap-2">
-                          <span>⚡</span> How FLIP Works
+                      <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 dark:from-purple-500/20 dark:to-blue-500/20 border border-purple-500/20 dark:border-purple-500/30 rounded-2xl p-6 text-left max-w-md mx-auto">
+                        <h4 className="text-purple-600 dark:text-purple-400 font-semibold mb-3 flex items-center gap-2">
+                          <span className="text-xl">⚡</span> How FLIP Works
                         </h4>
-                        <ul className="text-sm text-gray-400 space-y-2">
-                          <li>• LP provides FXRP to you instantly</li>
-                          <li>• LP earns a small fee (~0.3%) for taking the wait risk</li>
-                          <li>• FDC verifies your XRP payment in background</li>
-                          <li>• You skip the 3-5 minute verification wait!</li>
+                        <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-2.5">
+                          <li className="flex items-start gap-2">
+                            <span className="text-purple-500 dark:text-purple-400 mt-0.5">•</span>
+                            <span>LP provides FXRP to you instantly</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-purple-500 dark:text-purple-400 mt-0.5">•</span>
+                            <span>LP earns a small fee (~0.3%) for taking the wait risk</span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-purple-500 dark:text-purple-400 mt-0.5">•</span>
+                            <span><strong>FDC verifies your XRP payment in background</strong></span>
+                          </li>
+                          <li className="flex items-start gap-2">
+                            <span className="text-purple-500 dark:text-purple-400 mt-0.5">•</span>
+                            <span>You skip the 3-5 minute verification wait!</span>
+                          </li>
                         </ul>
                       </div>
 
                       <Button
                         onClick={handleFlipSettlement}
                         disabled={flipSettling || isPending || isWaitingTx}
-                        className="w-full max-w-md mx-auto h-16 text-lg font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 shadow-xl shadow-purple-500/20 rounded-2xl transition-all"
+                        className="w-full max-w-md mx-auto h-16 text-lg font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-xl shadow-purple-500/20 rounded-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {flipSettling || isPending || isWaitingTx ? (
                           <div className="flex items-center gap-3">
@@ -1143,15 +1356,15 @@ export default function MintPage() {
                       </Button>
                     </>
                   ) : (
-                    <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
+                    <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500 text-center">
                       <div className="relative mx-auto h-20 w-20">
                         <div className="absolute inset-0 bg-emerald-500/30 blur-2xl animate-pulse" />
                         <div className="relative h-full w-full bg-emerald-500 rounded-full flex items-center justify-center shadow-xl">
                           <span className="text-white text-3xl font-black">✓</span>
                         </div>
                       </div>
-                      <h3 className="text-2xl font-bold text-emerald-400">Settlement Complete!</h3>
-                      <p className="text-gray-400">LP provided your FXRP. Redirecting to success...</p>
+                      <h3 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">Settlement Complete!</h3>
+                      <p className="text-gray-600 dark:text-gray-400">LP provided your FXRP. Redirecting to success...</p>
                     </div>
                   )}
                 </div>
@@ -1210,7 +1423,6 @@ export default function MintPage() {
           </Card>
         </div>
       </main>
-    </div>
   );
 }
 

@@ -38,6 +38,18 @@ type RedemptionRequestedEvent struct {
 	Timestamp    *big.Int
 }
 
+// MintingRequestedEvent represents a MintingRequested event from FLIPCore
+type MintingRequestedEvent struct {
+	MintingID               *big.Int
+	User                    common.Address
+	Asset                   common.Address
+	CollateralReservationID *big.Int
+	XrplTxHash              string
+	XrpAmount               *big.Int
+	FxrpAmount              *big.Int
+	Timestamp               *big.Int
+}
+
 // RedemptionData represents redemption struct from FLIPCore
 type RedemptionData struct {
 	User               common.Address
@@ -411,4 +423,122 @@ func generatePaymentReference(redemptionID *big.Int) string {
 	// For now, use redemption ID as hex string (will be updated to match FLIPCore logic)
 	// In production, this should match FLIPCore's payment reference generation exactly
 	return fmt.Sprintf("%064x", redemptionID)
+}
+
+// MonitorMintingRequests monitors for MintingRequested events (new minting requests that need processing)
+func (em *EventMonitor) MonitorMintingRequests(ctx context.Context, eventChan chan<- MintingRequestedEvent) error {
+	// MintingRequested event signature
+	// event MintingRequested(uint256 indexed mintingId, address indexed user, address indexed asset, uint256 collateralReservationId, string xrplTxHash, uint256 xrpAmount, uint256 fxrpAmount, uint256 timestamp)
+	eventSignature := []byte("MintingRequested(uint256,address,address,uint256,string,uint256,uint256,uint256)")
+	eventTopic := common.BytesToHash(crypto.Keccak256(eventSignature))
+
+	log.Info().
+		Uint64("from_block", em.lastBlock).
+		Str("flip_core", em.flipCore.Hex()).
+		Msg("Starting MintingRequested event monitoring")
+
+	ticker := time.NewTicker(em.pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			currentBlock, err := em.client.BlockNumber(ctx)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to get block number")
+				continue
+			}
+
+			if currentBlock <= em.lastBlock {
+				continue
+			}
+
+			const maxBlockRange uint64 = 29
+			toBlock := currentBlock
+			if toBlock-em.lastBlock > maxBlockRange {
+				toBlock = em.lastBlock + maxBlockRange
+			}
+
+			query := ethereum.FilterQuery{
+				FromBlock: big.NewInt(int64(em.lastBlock)),
+				ToBlock:   big.NewInt(int64(toBlock)),
+				Addresses: []common.Address{em.flipCore},
+				Topics:    [][]common.Hash{{eventTopic}},
+			}
+
+			logs, err := em.client.FilterLogs(ctx, query)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to filter MintingRequested logs")
+				continue
+			}
+
+			for _, vLog := range logs {
+				event, err := em.parseMintingRequestedEvent(vLog)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to parse MintingRequested event")
+					continue
+				}
+
+				eventChan <- *event
+			}
+		}
+	}
+}
+
+// parseMintingRequestedEvent parses a MintingRequested event from a log
+func (em *EventMonitor) parseMintingRequestedEvent(vLog types.Log) (*MintingRequestedEvent, error) {
+	if len(vLog.Topics) < 4 {
+		return nil, fmt.Errorf("invalid event log: insufficient topics")
+	}
+
+	mintingID := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+	user := common.BytesToAddress(vLog.Topics[2].Bytes())
+	asset := common.BytesToAddress(vLog.Topics[3].Bytes())
+
+	// Parse data using ABI decoder for dynamic string
+	const mintingRequestedABIJSON = `[{
+		"anonymous": false,
+		"inputs": [
+			{"indexed": true, "name": "mintingId", "type": "uint256"},
+			{"indexed": true, "name": "user", "type": "address"},
+			{"indexed": true, "name": "asset", "type": "address"},
+			{"indexed": false, "name": "collateralReservationId", "type": "uint256"},
+			{"indexed": false, "name": "xrplTxHash", "type": "string"},
+			{"indexed": false, "name": "xrpAmount", "type": "uint256"},
+			{"indexed": false, "name": "fxrpAmount", "type": "uint256"},
+			{"indexed": false, "name": "timestamp", "type": "uint256"}
+		],
+		"name": "MintingRequested",
+		"type": "event"
+	}]`
+
+	parsed, err := abi.JSON(strings.NewReader(mintingRequestedABIJSON))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	eventData := make(map[string]interface{})
+	err = parsed.UnpackIntoMap(eventData, "MintingRequested", vLog.Data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack event data: %w", err)
+	}
+
+	collateralReservationID, _ := eventData["collateralReservationId"].(*big.Int)
+	xrplTxHash, _ := eventData["xrplTxHash"].(string)
+	xrpAmount, _ := eventData["xrpAmount"].(*big.Int)
+	fxrpAmount, _ := eventData["fxrpAmount"].(*big.Int)
+	timestamp, _ := eventData["timestamp"].(*big.Int)
+
+	return &MintingRequestedEvent{
+		MintingID:               mintingID,
+		User:                    user,
+		Asset:                   asset,
+		CollateralReservationID: collateralReservationID,
+		XrplTxHash:              xrplTxHash,
+		XrpAmount:               xrpAmount,
+		FxrpAmount:              fxrpAmount,
+		Timestamp:               timestamp,
+	}, nil
 }
