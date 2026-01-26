@@ -5,10 +5,13 @@
 flare:
   rpc_url: "https://coston2-api.flare.network/ext/C/rpc"
   chain_id: 114
-  flip_core_address: "0x06A84C4e441eDF8B8E1895d3166d140760FF2a39"
-  escrow_vault_address: "0xa51FA950a5a7176D8a2fFfB26bf180fCd97102d5"
-  lp_registry_address: "0xC868026c361F3865100b685A8Efaf62Ff4250F1A"
-  settlement_receipt_address: "0x1842f9FB8C06fC3db65D2f163080833300766205"
+  # FLIP v5 Contracts (BlazeSwap Backstop) - Updated 2026-01-23
+  flip_core_address: "0x5743737990221c92769D3eF641de7B633cd0E519"
+  escrow_vault_address: "0xF3995d7766D807EFeE60769D45973FfC176E1b0c"
+  lp_registry_address: "0xbc8423cd34653b1D64a8B54C4D597d90C4CEe100"
+  settlement_receipt_address: "0x159dCc41173bFA5924DdBbaAf14615E66aa7c6Ec"
+  operator_registry_address: "0x1e6DDfcA83c483c79C82230Ea923C57c1ef1A626"
+  blaze_vault_address: "0x678D95C2d75289D4860cdA67758CB9BFdac88611"
 
 # XRPL Configuration
 xrpl:

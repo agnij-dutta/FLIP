@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "./interfaces/IBlazeFLIPVault.sol";
+
 interface IERC20 {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);
@@ -38,6 +40,7 @@ contract LiquidityProviderRegistry {
     address public owner;
     address public flipCore; // FLIPCore contract address
     address public escrowVault; // EscrowVault contract address
+    address public backstopVault; // BlazeFLIPVault backstop address
 
     // ============ ERC20 LIQUIDITY (for minting) ============
 
@@ -102,6 +105,13 @@ contract LiquidityProviderRegistry {
         uint256 haircut
     );
 
+    event BackstopUsed(
+        address indexed asset,
+        uint256 amount,
+        uint256 haircut,
+        bool isERC20
+    );
+
     modifier onlyOwner() {
         require(msg.sender == owner, "LiquidityProviderRegistry: not owner");
         _;
@@ -138,7 +148,16 @@ contract LiquidityProviderRegistry {
         require(escrowVault == address(0), "LiquidityProviderRegistry: already set");
         escrowVault = _escrowVault;
     }
-    
+
+    /**
+     * @notice Set backstop vault address (owner only, can be updated)
+     * @param _backstopVault BlazeFLIPVault contract address
+     */
+    function setBackstopVault(address _backstopVault) external onlyOwner {
+        require(_backstopVault != address(0), "LiquidityProviderRegistry: invalid address");
+        backstopVault = _backstopVault;
+    }
+
     /**
      * @notice Deposit liquidity as LP
      * @param _asset Asset to provide liquidity for
@@ -273,10 +292,20 @@ contract LiquidityProviderRegistry {
             emit LiquidityMatched(bestLP, _asset, _amount, bestHaircut);
             return (bestLP, _amount);
         }
-        
+
+        // Backstop fallback: try BlazeFLIPVault when no direct LP matches
+        if (backstopVault != address(0)) {
+            (bool success, uint256 provided) = IBlazeFLIPVault(backstopVault)
+                .provideBackstopLiquidity(_asset, _amount, _requestedHaircut);
+            if (success && provided >= _amount) {
+                emit BackstopUsed(_asset, _amount, _requestedHaircut, false);
+                return (backstopVault, provided);
+            }
+        }
+
         return (address(0), 0);
     }
-    
+
     /**
      * @notice Record settlement and distribute fees to LP
      * @param _lp LP address
@@ -487,6 +516,16 @@ contract LiquidityProviderRegistry {
 
             emit ERC20LiquidityMatched(bestLP, _token, _amount, bestHaircut);
             return (bestLP, _amount);
+        }
+
+        // Backstop fallback: try BlazeFLIPVault JIT swap when no direct ERC20 LP matches
+        if (backstopVault != address(0)) {
+            (bool success, uint256 provided) = IBlazeFLIPVault(backstopVault)
+                .provideBackstopERC20Liquidity(_token, _amount, _requestedHaircut);
+            if (success && provided >= _amount) {
+                emit BackstopUsed(_token, _amount, _requestedHaircut, true);
+                return (backstopVault, provided);
+            }
         }
 
         return (address(0), 0);

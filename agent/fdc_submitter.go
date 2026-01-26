@@ -624,7 +624,7 @@ func (fs *FDCSubmitter) SubmitProof(ctx context.Context, redemptionID *big.Int, 
 		return fmt.Errorf("failed to get gas price: %w", err)
 	}
 	auth.GasPrice = gasPrice
-	auth.GasLimit = uint64(200000)
+	auth.GasLimit = uint64(500000) // Increased - handleFDCAttestation calls multiple contracts
 
 	contract := bind.NewBoundContract(fs.flipCore, parsed, fs.client, fs.client, fs.client)
 

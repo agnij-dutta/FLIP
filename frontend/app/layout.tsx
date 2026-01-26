@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
 import dynamic from 'next/dynamic';
 
@@ -8,11 +7,10 @@ const Providers = dynamic(() => import('./providers').then(mod => ({ default: mo
   ssr: false,
 });
 
-const inter = Inter({ subsets: ['latin'] });
-
 export const metadata: Metadata = {
-  title: 'FLIP Protocol - Flare Liquidation Insurance Protocol',
-  description: 'Instant redemption insurance for FAssets on Flare Network',
+  title: 'FLIP Protocol - Instant FAsset Redemptions on Flare',
+  description: 'Accelerate your FAsset redemptions with trust-minimized instant settlement. Powered by Flare Data Connector.',
+  keywords: ['Flare', 'FAssets', 'DeFi', 'Blockchain', 'XRP', 'Redemption', 'FLIP'],
 };
 
 export default function RootLayout({
@@ -21,16 +19,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.className} min-h-screen bg-[#0b0f1f] text-white antialiased`}>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      </head>
+      <body className="min-h-screen antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>
   );
 }
-
-
-
-
-
-
