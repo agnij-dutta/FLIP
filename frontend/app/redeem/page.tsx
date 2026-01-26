@@ -475,18 +475,18 @@ export default function RedeemPage() {
   const explorerUrl = CONTRACTS.networks.coston2.explorer;
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Header />
 
       {/* Hero Section */}
-      <div className="bg-white border-b border-gray-100">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
         <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
           <div className="text-center">
             <span className="section-label">FAsset Redemption</span>
-            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mt-4 mb-4">
+            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white mt-4 mb-4">
               Redeem Your <span className="text-gradient">FAssets</span>
             </h1>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
               Convert FXRP back to native XRP with instant settlement options.
             </p>
           </div>

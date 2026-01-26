@@ -48,6 +48,7 @@ function HeaderContent({
   }, []);
 
   const navLinks = [
+    { name: 'Mint', href: '/mint' },
     { name: 'Redeem', href: '/redeem', icon: Zap },
     { name: 'LP Dashboard', href: '/lp' },
     { name: 'Vault', href: '/vault' },
@@ -289,7 +290,7 @@ function HeaderSkeleton() {
               </div>
             </div>
             <div className="hidden md:flex items-center gap-1 px-2 py-1.5 rounded-full bg-gray-100/50 dark:bg-gray-800/50">
-              {[1, 2, 3, 4].map((i) => (
+              {[1, 2, 3, 4, 5].map((i) => (
                 <div key={i} className="w-20 h-8 bg-gray-200/50 dark:bg-gray-700/50 rounded-full animate-pulse" />
               ))}
             </div>

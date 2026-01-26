@@ -155,16 +155,16 @@ export default function LPDashboard() {
 
   if (!isConnected) {
     return (
-      <main className="min-h-screen bg-gray-50">
+      <main className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <Header />
-        <div className="bg-white border-b border-gray-100">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
           <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
             <div className="text-center">
               <span className="section-label">Liquidity Provider</span>
-              <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mt-4 mb-4">
+              <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white mt-4 mb-4">
                 LP <span className="text-gradient">Dashboard</span>
               </h1>
-              <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              <p className="text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
                 Earn fees by providing liquidity for instant FAsset redemptions.
               </p>
             </div>
@@ -174,11 +174,11 @@ export default function LPDashboard() {
           <Card>
             <CardContent className="pt-12 pb-12">
               <div className="text-center">
-                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
+                <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-4">
                   <Wallet className="w-8 h-8 text-gray-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Connect Your Wallet</h3>
-                <p className="text-gray-500">Please connect your wallet to manage LP positions.</p>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Connect Your Wallet</h3>
+                <p className="text-gray-500 dark:text-gray-400">Please connect your wallet to manage LP positions.</p>
               </div>
             </CardContent>
           </Card>
@@ -188,18 +188,18 @@ export default function LPDashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Header />
 
       {/* Hero Section */}
-      <div className="bg-white border-b border-gray-100">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
         <div className="max-w-4xl mx-auto px-4 py-12 sm:py-16">
           <div className="text-center">
             <span className="section-label">Liquidity Provider</span>
-            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mt-4 mb-4">
+            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white mt-4 mb-4">
               LP <span className="text-gradient">Dashboard</span>
             </h1>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
               Earn haircut fees by providing liquidity for instant FAsset redemptions.
             </p>
           </div>

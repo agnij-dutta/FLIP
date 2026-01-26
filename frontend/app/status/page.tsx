@@ -39,18 +39,18 @@ export default function StatusPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Header />
 
       {/* Hero Section */}
-      <div className="bg-white border-b border-gray-100">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
         <div className="max-w-6xl mx-auto px-4 py-12 sm:py-16">
           <div className="text-center">
             <span className="section-label">System Monitoring</span>
-            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mt-4 mb-4">
+            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 dark:text-white mt-4 mb-4">
               Protocol <span className="text-gradient">Status</span>
             </h1>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
               Real-time health and statistics for the FLIP protocol.
             </p>
           </div>
