@@ -63,9 +63,92 @@ func NewAgent(config *Config) (*Agent, error) {
 	}, nil
 }
 
+// verifyAccessControl checks if the agent has proper permissions on FLIPCore
+func (a *Agent) verifyAccessControl(ctx context.Context) error {
+	if a.config.Flare.PrivateKey == "" {
+		log.Warn().Msg("No private key configured - skipping access control verification")
+		return nil
+	}
+
+	privateKey, err := crypto.HexToECDSA(strings.TrimPrefix(a.config.Flare.PrivateKey, "0x"))
+	if err != nil {
+		return fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	agentAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	// ABI for checking owner and operator status
+	const checkABI = `[
+		{"inputs":[],"name":"owner","outputs":[{"name":"","type":"address"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"_operator","type":"address"}],"name":"isOperator","outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"}
+	]`
+
+	parsed, err := abi.JSON(strings.NewReader(checkABI))
+	if err != nil {
+		return fmt.Errorf("failed to parse check ABI: %w", err)
+	}
+
+	flipCoreAddr := common.HexToAddress(a.config.Flare.FLIPCoreAddress)
+	contract := bind.NewBoundContract(flipCoreAddr, parsed, a.flareClient, a.flareClient, a.flareClient)
+
+	// Check owner
+	var ownerResult []interface{}
+	err = contract.Call(&bind.CallOpts{Context: ctx}, &ownerResult, "owner")
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to check FLIPCore owner")
+	} else if len(ownerResult) > 0 {
+		owner := ownerResult[0].(common.Address)
+		isOwner := owner == agentAddress
+		log.Info().
+			Str("agent_address", agentAddress.Hex()).
+			Str("flip_core_owner", owner.Hex()).
+			Bool("is_owner", isOwner).
+			Msg("Access control check: owner")
+
+		if !isOwner {
+			log.Warn().Msg("Agent is NOT the FLIPCore owner")
+		}
+	}
+
+	// Check if operator via OperatorRegistry
+	const operatorCheckABI = `[
+		{"inputs":[{"name":"_operator","type":"address"}],"name":"isOperator","outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"}
+	]`
+
+	operatorParsed, err := abi.JSON(strings.NewReader(operatorCheckABI))
+	if err == nil {
+		// Try to read operator registry address from config or use default
+		operatorRegistryAddr := common.HexToAddress("0x1e6DDfcA83c483c79C82230Ea923C57c1ef1A626") // From config.yaml
+		operatorContract := bind.NewBoundContract(operatorRegistryAddr, operatorParsed, a.flareClient, a.flareClient, a.flareClient)
+
+		var isOperatorResult []interface{}
+		err = operatorContract.Call(&bind.CallOpts{Context: ctx}, &isOperatorResult, "isOperator", agentAddress)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to check operator status")
+		} else if len(isOperatorResult) > 0 {
+			isOperator := isOperatorResult[0].(bool)
+			log.Info().
+				Str("agent_address", agentAddress.Hex()).
+				Bool("is_operator", isOperator).
+				Msg("Access control check: operator")
+
+			if !isOperator {
+				log.Warn().Msg("Agent is NOT a registered operator - finalizeProvisional and finalizeMintingProvisional will fail unless agent is owner")
+			}
+		}
+	}
+
+	return nil
+}
+
 // Run starts the agent service
 func (a *Agent) Run(ctx context.Context) error {
 	log.Info().Msg("Agent service started")
+
+	// Verify access control at startup
+	if err := a.verifyAccessControl(ctx); err != nil {
+		log.Warn().Err(err).Msg("Access control verification failed")
+	}
 
 	// Recover any failed FDC submissions (XRP sent but not finalized)
 	if err := a.recoverFailedFDCSubmissions(ctx); err != nil {
@@ -144,11 +227,13 @@ func (a *Agent) handleRedemptionRequested(ctx context.Context, event RedemptionR
 		Str("amount", event.Amount.String()).
 		Msg("Processing new RedemptionRequested event")
 
-	// Call ownerProcessRedemption to create escrow
+	// Call finalizeProvisional to create escrow
 	// This requires the agent to have owner/operator privileges on FLIPCore
-	err := a.callOwnerProcessRedemption(ctx, event.RedemptionID)
+	// Using finalizeProvisional instead of ownerProcessRedemption because it uses
+	// onlyOperator modifier which allows both operators AND owner
+	err := a.callFinalizeProvisional(ctx, event.RedemptionID)
 	if err != nil {
-		return fmt.Errorf("failed to call ownerProcessRedemption: %w", err)
+		return fmt.Errorf("failed to call finalizeProvisional: %w", err)
 	}
 
 	a.processedRedemptions[redemptionID] = true
@@ -157,9 +242,10 @@ func (a *Agent) handleRedemptionRequested(ctx context.Context, event RedemptionR
 	return nil
 }
 
-// callOwnerProcessRedemption calls FLIPCore.ownerProcessRedemption
-func (a *Agent) callOwnerProcessRedemption(ctx context.Context, redemptionID *big.Int) error {
-	// ABI for ownerProcessRedemption
+// callFinalizeProvisional calls FLIPCore.finalizeProvisional
+// This function uses onlyOperator modifier which allows both operators AND owner
+func (a *Agent) callFinalizeProvisional(ctx context.Context, redemptionID *big.Int) error {
+	// ABI for finalizeProvisional (uses onlyOperator, not onlyOwner)
 	const flipCoreABIJSON = `[{
 		"inputs": [
 			{"name": "_redemptionId", "type": "uint256"},
@@ -167,7 +253,7 @@ func (a *Agent) callOwnerProcessRedemption(ctx context.Context, redemptionID *bi
 			{"name": "_agentSuccessRate", "type": "uint256"},
 			{"name": "_agentStake", "type": "uint256"}
 		],
-		"name": "ownerProcessRedemption",
+		"name": "finalizeProvisional",
 		"outputs": [],
 		"stateMutability": "nonpayable",
 		"type": "function"
@@ -201,6 +287,11 @@ func (a *Agent) callOwnerProcessRedemption(ctx context.Context, redemptionID *bi
 		return fmt.Errorf("failed to create transactor: %w", err)
 	}
 
+	log.Info().
+		Str("agent_address", auth.From.Hex()).
+		Str("flip_core", a.config.Flare.FLIPCoreAddress).
+		Msg("Calling finalizeProvisional")
+
 	// Get nonce
 	nonce, err := a.flareClient.PendingNonceAt(ctx, auth.From)
 	if err != nil {
@@ -219,14 +310,14 @@ func (a *Agent) callOwnerProcessRedemption(ctx context.Context, redemptionID *bi
 	flipCoreAddr := common.HexToAddress(a.config.Flare.FLIPCoreAddress)
 
 	// Send transaction
-	tx, err := bind.NewBoundContract(flipCoreAddr, parsed, a.flareClient, a.flareClient, a.flareClient).Transact(auth, "ownerProcessRedemption", redemptionID, priceVolatility, agentSuccessRate, agentStake)
+	tx, err := bind.NewBoundContract(flipCoreAddr, parsed, a.flareClient, a.flareClient, a.flareClient).Transact(auth, "finalizeProvisional", redemptionID, priceVolatility, agentSuccessRate, agentStake)
 	if err != nil {
 		return fmt.Errorf("failed to send transaction: %w", err)
 	}
 
 	log.Info().
 		Str("tx_hash", tx.Hash().Hex()).
-		Msg("Sent ownerProcessRedemption transaction")
+		Msg("Sent finalizeProvisional transaction")
 
 	// Wait for confirmation
 	receipt, err := bind.WaitMined(ctx, a.flareClient, tx)
@@ -235,13 +326,19 @@ func (a *Agent) callOwnerProcessRedemption(ctx context.Context, redemptionID *bi
 	}
 
 	if receipt.Status != 1 {
+		// Try to get more info about failure
+		log.Error().
+			Str("tx_hash", tx.Hash().Hex()).
+			Uint64("gas_used", receipt.GasUsed).
+			Uint64("gas_limit", auth.GasLimit).
+			Msg("finalizeProvisional transaction reverted - check: 1) agent is owner/operator, 2) redemption status is Pending, 3) scoring passes, 4) LP liquidity available")
 		return fmt.Errorf("transaction failed with status %d", receipt.Status)
 	}
 
 	log.Info().
 		Str("tx_hash", tx.Hash().Hex()).
 		Uint64("gas_used", receipt.GasUsed).
-		Msg("ownerProcessRedemption transaction confirmed")
+		Msg("finalizeProvisional transaction confirmed")
 
 	return nil
 }
@@ -622,6 +719,12 @@ func (a *Agent) callFinalizeMintingProvisional(ctx context.Context, mintingID *b
 		return fmt.Errorf("failed to create transactor: %w", err)
 	}
 
+	log.Info().
+		Str("agent_address", auth.From.Hex()).
+		Str("flip_core", a.config.Flare.FLIPCoreAddress).
+		Uint64("minting_id", mintingID.Uint64()).
+		Msg("Calling finalizeMintingProvisional")
+
 	nonce, err := a.flareClient.PendingNonceAt(ctx, auth.From)
 	if err != nil {
 		return fmt.Errorf("failed to get nonce: %w", err)
@@ -653,6 +756,13 @@ func (a *Agent) callFinalizeMintingProvisional(ctx context.Context, mintingID *b
 	}
 
 	if receipt.Status != 1 {
+		// Log more details for debugging
+		log.Error().
+			Str("tx_hash", tx.Hash().Hex()).
+			Uint64("minting_id", mintingID.Uint64()).
+			Uint64("gas_used", receipt.GasUsed).
+			Uint64("gas_limit", auth.GasLimit).
+			Msg("finalizeMintingProvisional reverted - possible causes: 1) agent not owner/operator, 2) minting status not Pending, 3) scoring failed (amount > 10k tokens or volatility > 2%), 4) no LP liquidity available")
 		return fmt.Errorf("transaction failed with status %d", receipt.Status)
 	}
 
@@ -662,6 +772,78 @@ func (a *Agent) callFinalizeMintingProvisional(ctx context.Context, mintingID *b
 		Msg("finalizeMintingProvisional transaction confirmed - FXRP transferred to user")
 
 	return nil
+}
+
+// checkLPLiquidity checks if there's LP liquidity available for the given token
+func (a *Agent) checkLPLiquidity(ctx context.Context, tokenAddress common.Address, amount *big.Int) (bool, error) {
+	const lpRegistryABI = `[
+		{"inputs":[{"name":"_token","type":"address"}],"name":"getActiveERC20LPCount","outputs":[{"name":"count","type":"uint256"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"_token","type":"address"},{"name":"_index","type":"uint256"}],"name":"activeERC20LPs","outputs":[{"name":"","type":"address"}],"stateMutability":"view","type":"function"},
+		{"inputs":[{"name":"_lp","type":"address"},{"name":"_token","type":"address"}],"name":"erc20Positions","outputs":[{"name":"lp","type":"address"},{"name":"asset","type":"address"},{"name":"depositedAmount","type":"uint256"},{"name":"availableAmount","type":"uint256"},{"name":"minHaircut","type":"uint256"},{"name":"maxDelay","type":"uint256"},{"name":"totalEarned","type":"uint256"},{"name":"active","type":"bool"}],"stateMutability":"view","type":"function"}
+	]`
+
+	parsed, err := abi.JSON(strings.NewReader(lpRegistryABI))
+	if err != nil {
+		return false, err
+	}
+
+	// LP Registry address from config.yaml
+	lpRegistryAddr := common.HexToAddress("0xbc8423cd34653b1D64a8B54C4D597d90C4CEe100")
+	contract := bind.NewBoundContract(lpRegistryAddr, parsed, a.flareClient, a.flareClient, a.flareClient)
+
+	// Get count of active LPs for this token
+	var countResult []interface{}
+	err = contract.Call(&bind.CallOpts{Context: ctx}, &countResult, "getActiveERC20LPCount", tokenAddress)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to query active ERC20 LP count")
+		return false, err
+	}
+
+	lpCount := countResult[0].(*big.Int).Uint64()
+	if lpCount == 0 {
+		log.Warn().
+			Str("token", tokenAddress.Hex()).
+			Msg("No active LPs registered for this token - minting will fail. Register LP via LiquidityProviderRegistry.registerERC20Position()")
+		return false, nil
+	}
+
+	// Check each LP's balance
+	totalAvailable := big.NewInt(0)
+	for i := uint64(0); i < lpCount; i++ {
+		// Get LP address at index
+		var lpResult []interface{}
+		err = contract.Call(&bind.CallOpts{Context: ctx}, &lpResult, "activeERC20LPs", tokenAddress, big.NewInt(int64(i)))
+		if err != nil {
+			continue
+		}
+		lp := lpResult[0].(common.Address)
+
+		// Get LP position
+		var posResult []interface{}
+		err = contract.Call(&bind.CallOpts{Context: ctx}, &posResult, "erc20Positions", lp, tokenAddress)
+		if err != nil {
+			continue
+		}
+		availableAmount := posResult[3].(*big.Int)
+		active := posResult[7].(bool)
+		if active && availableAmount.Cmp(big.NewInt(0)) > 0 {
+			totalAvailable.Add(totalAvailable, availableAmount)
+			log.Debug().
+				Str("lp", lp.Hex()).
+				Str("available", availableAmount.String()).
+				Msg("Found LP with liquidity")
+		}
+	}
+
+	hasLiquidity := totalAvailable.Cmp(amount) >= 0
+	log.Info().
+		Uint64("active_lps", lpCount).
+		Str("total_available", totalAvailable.String()).
+		Str("required", amount.String()).
+		Bool("sufficient", hasLiquidity).
+		Msg("LP liquidity check")
+
+	return hasLiquidity, nil
 }
 
 // recoverPendingMintings checks for pending minting requests that need processing
@@ -698,24 +880,61 @@ func (a *Agent) recoverPendingMintings(ctx context.Context) error {
 			continue
 		}
 
-		// status is at index 9
+		// Parse minting request fields
+		user := mintingResult[0].(common.Address)
+		asset := mintingResult[1].(common.Address)
+		fxrpAmount := mintingResult[5].(*big.Int)
 		status := mintingResult[9].(uint8)
+
+		// Log current status
+		statusNames := []string{"Pending", "ProvisionalSettled", "QueuedForFDC", "Finalized", "Failed", "Timeout"}
+		statusName := "Unknown"
+		if int(status) < len(statusNames) {
+			statusName = statusNames[status]
+		}
+
+		log.Debug().
+			Uint64("minting_id", i).
+			Uint8("status", status).
+			Str("status_name", statusName).
+			Str("asset", asset.Hex()).
+			Msg("Checking minting request")
+
 		// Status 0 = Pending (needs processing)
 		if status == 0 {
-			user := mintingResult[0].(common.Address)
-			fxrpAmount := mintingResult[5].(*big.Int)
-
 			log.Info().
 				Uint64("minting_id", i).
 				Str("user", user.Hex()).
 				Str("fxrp_amount", fxrpAmount.String()).
-				Msg("Found pending minting, processing...")
+				Str("asset", asset.Hex()).
+				Msg("Found pending minting, checking LP liquidity...")
+
+			// Check LP liquidity first
+			hasLiquidity, err := a.checkLPLiquidity(ctx, asset, fxrpAmount)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to check LP liquidity")
+			}
+
+			if !hasLiquidity {
+				log.Warn().
+					Uint64("minting_id", i).
+					Str("asset", asset.Hex()).
+					Msg("Skipping minting - no LP liquidity available. Register LP via LiquidityProviderRegistry.registerERC20Position()")
+				continue
+			}
+
+			log.Info().Uint64("minting_id", i).Msg("LP liquidity available, processing minting...")
 
 			if err := a.callFinalizeMintingProvisional(ctx, mintingID); err != nil {
 				log.Error().Err(err).Uint64("minting_id", i).Msg("Failed to process pending minting")
 			} else {
 				a.processedMintings[i] = true
 			}
+		} else {
+			log.Debug().
+				Uint64("minting_id", i).
+				Str("status", statusName).
+				Msg("Minting not in Pending status, skipping")
 		}
 	}
 

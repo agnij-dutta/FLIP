@@ -3,6 +3,7 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { Menu, X, ChevronDown, Sun, Moon, Sparkles, Zap } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -200,10 +201,13 @@ function HeaderContent({
                               >
                                 {chain.hasIcon && chain.iconUrl && (
                                   <div className="w-5 h-5 rounded-full overflow-hidden">
-                                    <img
+                                    <Image
                                       alt={chain.name ?? 'Chain icon'}
                                       src={chain.iconUrl}
+                                      width={20}
+                                      height={20}
                                       className="w-5 h-5"
+                                      unoptimized
                                     />
                                   </div>
                                 )}

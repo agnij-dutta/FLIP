@@ -452,7 +452,7 @@ export default function XRPLExplorer() {
               <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800">
                 <p className="font-semibold text-gray-900 dark:text-white mb-2">Address Format</p>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  XRPL addresses start with 'r' followed by 25-34 base58 characters (e.g., rXXX...).
+                  XRPL addresses start with &lsquo;r&rsquo; followed by 25-34 base58 characters (e.g., rXXX...).
                 </p>
               </div>
               <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800">

@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+import Image from "next/image";
 
 
 type SimpleNavbarProps = {
@@ -46,13 +47,16 @@ export function SimpleNavbar({ title, userName, userImage }: SimpleNavbarProps) 
             </span>
           </div>
         <div className="size-10 border rounded-full overflow-hidden p-0.5 bg-background">
-          <img
+          <Image
             src={
               userImage ||
               "https://m.media-amazon.com/images/I/31sDQI7yfDL._AC_UF894,1000_QL80_.jpg"
             }
             alt="profile"
+            width={40}
+            height={40}
             className="size-full rounded-full object-cover"
+            unoptimized
           />
         </div>
       </div>

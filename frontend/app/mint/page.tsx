@@ -1,7 +1,7 @@
 'use client';
 
 import { Header } from "@/components/header";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import React from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, usePublicClient } from 'wagmi';
 import { parseUnits, formatUnits, Address, decodeEventLog } from 'viem';
@@ -133,14 +133,14 @@ export default function MintPage() {
     if (selectedAgent && lots && step === 'reserve-collateral') {
       calculateCRF();
     }
-  }, [selectedAgent, lots, step]);
+  }, [selectedAgent, lots, step, calculateCRF]);
 
   // Step 3: Load XRP balance when XRPL address is connected
   useEffect(() => {
     if (xrplAddress && isValidXRPLAddress(xrplAddress) && step === 'connect-xrpl') {
       loadXRPBalance();
     }
-  }, [xrplAddress, step]);
+  }, [xrplAddress, step, loadXRPBalance]);
 
   // Step 4: Monitor reservation info after collateral reservation
   useEffect(() => {
@@ -155,7 +155,7 @@ export default function MintPage() {
         loadReservationInfo();
       }
     }
-  }, [reservationId, txSuccess, step, paymentInfo]);
+  }, [reservationId, txSuccess, step, paymentInfo, loadReservationInfo]);
 
   async function loadAgents() {
     try {
@@ -439,7 +439,7 @@ export default function MintPage() {
         setError(`Failed to fetch transaction receipt: ${err.message}`);
       });
     }
-  }, [txHash, txSuccess, publicClient, step]);
+  }, [txHash, txSuccess, publicClient, step, addToast]);
 
   async function handleConnectXRPL() {
     // For now, we'll use manual address input
