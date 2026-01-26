@@ -347,7 +347,7 @@ function BuildSection() {
                     <span className="text-orange-300">provider</span>
                     <span className="text-white">);</span>
                     {"\n\n"}
-                    <span className="text-gray-500">// Request instant redemption</span>
+                    {/* Request instant redemption */}
                     {"\n"}
                     <span className="text-purple-400">const</span>{" "}
                     <span className="text-blue-300">result</span>{" "}
@@ -361,13 +361,13 @@ function BuildSection() {
                     <span className="text-white">{"  "}</span>
                     <span className="text-blue-300">amount</span>
                     <span className="text-white">:</span>{" "}
-                    <span className="text-orange-300">"1000"</span>
+                    <span className="text-orange-300">&quot;1000&quot;</span>
                     <span className="text-white">,</span>
                     {"\n"}
                     <span className="text-white">{"  "}</span>
                     <span className="text-blue-300">asset</span>
                     <span className="text-white">:</span>{" "}
-                    <span className="text-orange-300">"FXrp"</span>
+                    <span className="text-orange-300">&quot;FXrp&quot;</span>
                     <span className="text-white">,</span>
                     {"\n"}
                     <span className="text-white">{"  "}</span>
@@ -378,7 +378,7 @@ function BuildSection() {
                     <span className="text-white">{"})"}</span>
                     <span className="text-white">;</span>
                     {"\n\n"}
-                    <span className="text-gray-500">// Get confidence score</span>
+                    {/* Get confidence score */}
                     {"\n"}
                     <span className="text-purple-400">const</span>{" "}
                     <span className="text-blue-300">score</span>{" "}
@@ -387,7 +387,7 @@ function BuildSection() {
                     <span className="text-white">.</span>
                     <span className="text-blue-300">confidenceScore</span>
                     <span className="text-white">;</span>{" "}
-                    <span className="text-gray-500">// 99.7%</span>
+                    {/* 99.7% */}
                   </code>
                 </pre>
               </div>
