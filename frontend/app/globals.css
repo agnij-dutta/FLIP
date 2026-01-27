@@ -153,7 +153,7 @@
      FLOATING NAVBAR - Premium Glass
      ======================================== */
   .navbar-glass {
-    @apply fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-6xl;
+    @apply fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-7xl;
     background: rgba(255, 255, 255, 0.7);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -690,6 +690,104 @@
     height: 600px;
     background: radial-gradient(circle, rgba(227, 29, 101, 0.08) 0%, transparent 70%);
     filter: blur(60px);
+  }
+}
+
+@layer components {
+  /* ========================================
+     WHITEPAPER - GitBook-Style Typography
+     ======================================== */
+  .whitepaper-content {
+    @apply text-gray-800 dark:text-gray-200;
+    line-height: 1.8;
+  }
+
+  .wp-section {
+    @apply mb-4;
+  }
+
+  .wp-h2 {
+    @apply text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900 dark:text-white mb-4 mt-2;
+    letter-spacing: -0.02em;
+  }
+
+  .wp-h3 {
+    @apply text-xl font-bold text-gray-900 dark:text-white mb-3;
+    letter-spacing: -0.01em;
+  }
+
+  .wp-h4 {
+    @apply text-base font-bold text-gray-800 dark:text-gray-100 mb-2 mt-8;
+  }
+
+  .wp-p {
+    @apply text-[15px] text-gray-600 dark:text-gray-300 mb-4;
+    line-height: 1.8;
+  }
+
+  .wp-note {
+    @apply italic text-gray-500 dark:text-gray-400;
+  }
+
+  .wp-list {
+    @apply my-4 ml-1 space-y-2 text-gray-600 dark:text-gray-300;
+    font-size: 15px;
+    list-style: none;
+  }
+
+  .wp-list li {
+    @apply relative pl-5;
+  }
+
+  .wp-list li::before {
+    content: '';
+    @apply absolute left-0 w-1.5 h-1.5 rounded-full;
+    top: 10px;
+    background: var(--flare-pink);
+    opacity: 0.5;
+  }
+
+  .wp-ordered-list {
+    @apply my-4 ml-1 space-y-2 text-gray-600 dark:text-gray-300;
+    font-size: 15px;
+    counter-reset: wp-counter;
+    list-style: none;
+  }
+
+  .wp-ordered-list li {
+    @apply relative pl-8;
+    counter-increment: wp-counter;
+  }
+
+  .wp-ordered-list li::before {
+    content: counter(wp-counter);
+    @apply absolute left-0 top-0 w-5 h-5 rounded-md font-bold flex items-center justify-center;
+    font-size: 11px;
+    background: rgba(227, 29, 101, 0.08);
+    color: var(--flare-pink);
+  }
+
+  .wp-inline-code {
+    @apply px-1.5 py-0.5 rounded-md font-mono font-medium;
+    font-size: 13px;
+    background: rgba(227, 29, 101, 0.06);
+    color: var(--flare-pink);
+    border: 1px solid rgba(227, 29, 101, 0.1);
+  }
+
+  .dark .wp-inline-code {
+    background: rgba(227, 29, 101, 0.1);
+    border-color: rgba(227, 29, 101, 0.15);
+  }
+
+  .wp-divider {
+    @apply my-10 border-0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(227, 29, 101, 0.15), rgba(229, 231, 235, 0.3), transparent);
+  }
+
+  .dark .wp-divider {
+    background: linear-gradient(90deg, transparent, rgba(227, 29, 101, 0.1), rgba(55, 65, 81, 0.3), transparent);
   }
 }
 

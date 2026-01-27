@@ -5,7 +5,7 @@ import { useAccount } from 'wagmi';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
-import { Menu, X, ChevronDown, Sun, Moon, Sparkles, Zap } from 'lucide-react';
+import { Menu, X, ChevronDown, Sun, Moon, Sparkles, Zap, Search, FileText } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 export function Header() {
@@ -54,6 +54,11 @@ function HeaderContent({
     { name: 'LP Dashboard', href: '/lp' },
     { name: 'Vault', href: '/vault' },
     { name: 'Status', href: '/status' },
+    { name: 'XRPL Explorer', href: '/xrpl-explorer', icon: Search },
+  ];
+
+  const specialLinks = [
+    { name: 'Whitepaper', href: '/whitepaper', icon: FileText },
   ];
 
   return (
@@ -62,7 +67,7 @@ function HeaderContent({
         <div className="px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
-            <Link href="/" className="flex items-center gap-3 group">
+            <Link href="/" className="flex items-center gap-3 group flex-shrink-0">
               <div className="relative">
                 {/* Logo glow on hover */}
                 <div className="absolute inset-0 bg-flare-pink/30 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500 scale-150" />
@@ -110,14 +115,27 @@ function HeaderContent({
             </Link>
 
             {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center">
-              <div className="flex items-center gap-1 px-2 py-1.5 rounded-full bg-gray-100/50 dark:bg-gray-800/50">
+            <nav className="hidden lg:flex items-center flex-shrink-0">
+              <div className="flex items-center gap-0.5 px-1.5 py-1.5 rounded-full bg-gray-100/50 dark:bg-gray-800/50">
                 {navLinks.map((link) => (
                   <Link
                     key={link.name}
                     href={link.href}
-                    className="relative px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-flare-pink dark:hover:text-flare-pink rounded-full hover:bg-white dark:hover:bg-gray-700 transition-all duration-300"
+                    className="relative px-3 py-1.5 text-[13px] font-medium text-gray-600 dark:text-gray-300 hover:text-flare-pink dark:hover:text-flare-pink rounded-full hover:bg-white dark:hover:bg-gray-700 transition-all duration-300 whitespace-nowrap"
                   >
+                    {link.name}
+                  </Link>
+                ))}
+                {/* Divider */}
+                <div className="w-px h-4 bg-gray-300/50 dark:bg-gray-600/50 mx-0.5" />
+                {/* Special Links inline */}
+                {specialLinks.map((link) => (
+                  <Link
+                    key={link.name}
+                    href={link.href}
+                    className="relative flex items-center gap-1 px-3 py-1.5 text-[13px] font-semibold text-flare-pink rounded-full bg-flare-pink/8 hover:bg-flare-pink hover:text-white transition-all duration-300 whitespace-nowrap"
+                  >
+                    {link.icon && <link.icon className="w-3 h-3" />}
                     {link.name}
                   </Link>
                 ))}
@@ -125,7 +143,7 @@ function HeaderContent({
             </nav>
 
             {/* Right Side */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {/* Theme Toggle */}
               {mounted && (
                 <button
@@ -236,7 +254,7 @@ function HeaderContent({
               {/* Mobile Menu Button */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2.5 text-gray-600 dark:text-gray-300 hover:text-flare-pink rounded-xl hover:bg-flare-pink/10 transition-all"
+                className="lg:hidden p-2.5 text-gray-600 dark:text-gray-300 hover:text-flare-pink rounded-xl hover:bg-flare-pink/10 transition-all"
               >
                 {mobileMenuOpen ? (
                   <X className="w-5 h-5" />
@@ -250,7 +268,7 @@ function HeaderContent({
 
         {/* Mobile Menu */}
         <div
-          className={`md:hidden overflow-hidden transition-all duration-300 ease-out-expo ${
+          className={`lg:hidden overflow-hidden transition-all duration-300 ease-out-expo ${
             mobileMenuOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
           }`}
         >
@@ -266,6 +284,20 @@ function HeaderContent({
                   {link.name}
                 </Link>
               ))}
+              {/* Special links section */}
+              <div className="pt-3 mt-3 border-t border-gray-100 dark:border-gray-800">
+                {specialLinks.map((link) => (
+                  <Link
+                    key={link.name}
+                    href={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-2 px-4 py-3 text-base font-semibold text-flare-pink hover:bg-flare-pink/5 rounded-xl transition-all"
+                  >
+                    {link.icon && <link.icon className="w-4 h-4" />}
+                    {link.name}
+                  </Link>
+                ))}
+              </div>
               <div className="pt-4 border-t border-gray-100 dark:border-gray-800 mt-4">
                 <ConnectButton />
               </div>
@@ -293,10 +325,14 @@ function HeaderSkeleton() {
                 <div className="w-16 h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
               </div>
             </div>
-            <div className="hidden md:flex items-center gap-1 px-2 py-1.5 rounded-full bg-gray-100/50 dark:bg-gray-800/50">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="w-20 h-8 bg-gray-200/50 dark:bg-gray-700/50 rounded-full animate-pulse" />
-              ))}
+            <div className="hidden lg:flex items-center">
+              <div className="flex items-center gap-0.5 px-1.5 py-1.5 rounded-full bg-gray-100/50 dark:bg-gray-800/50">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className="w-16 h-7 bg-gray-200/50 dark:bg-gray-700/50 rounded-full animate-pulse" />
+                ))}
+                <div className="w-px h-4 bg-gray-300/50 dark:bg-gray-600/50 mx-0.5" />
+                <div className="w-20 h-7 bg-pink-100/50 dark:bg-pink-900/20 rounded-full animate-pulse" />
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
